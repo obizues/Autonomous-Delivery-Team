@@ -1,0 +1,8 @@
+[project]
+name = "fake-upload-service"
+version = "0.1.0"
+description = "Seed repo for ai_software_factory repo-mode testing"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

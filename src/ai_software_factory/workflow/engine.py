@@ -231,6 +231,16 @@ class WorkflowEngine:
                 else:
                     state.revision += 1
                     state.current_stage = WorkflowStage.IMPLEMENTATION
+                    self.event_bus.emit(
+                        workflow_id=state.workflow_id,
+                        event_type=EventType.REVISION_STARTED,
+                        stage=WorkflowStage.IMPLEMENTATION,
+                        payload={
+                            "old_revision": state.revision - 1,
+                            "new_revision": state.revision,
+                            "reason": "Revision loop triggered by REQUEST_CHANGES from previous gate",
+                        },
+                    )
             else:
                 state.current_stage = default_next_stage(stage)
         else:

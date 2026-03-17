@@ -249,6 +249,19 @@ class WorkflowEngine:
         state.stage_history.append(stage)
         state.last_updated_at = datetime.now(timezone.utc)
         self.state_store.save(state)
+        
+        # Emit transition event for graph visualization
+        self.event_bus.emit(
+            workflow_id=state.workflow_id,
+            event_type=EventType.TRANSITION_OCCURRED,
+            stage=stage,
+            payload={
+                "from_stage": stage.value,
+                "to_stage": state.current_stage.value,
+                "revision": state.revision,
+            },
+        )
+        
         self.event_bus.emit(
             workflow_id=state.workflow_id,
             event_type=EventType.STAGE_COMPLETED,

@@ -451,6 +451,87 @@ def process_records(records: list[dict]) -> dict:
 """.strip()
 
     @staticmethod
+    @staticmethod
+    def _calculate_complexity(
+        backlog_text: str,
+        files_to_modify: list[str],
+        target_symbols: dict[str, list[str]] | None = None,
+    ) -> float:
+        """
+        Calculate task complexity from backlog and files.
+        
+        Returns: 0.0 (trivial) to 1.0 (very complex)
+        
+        Factors considered:
+        - Number of files to modify (more = more complex)
+        - Backlog text length (longer description = more scope)
+        - Presence of complexity keywords (refactor, redesign, etc.)
+        - Number of symbols to target (more symbols = more complex)
+        """
+        complexity = 0.0
+        
+        # Factor 1: File count (0.0-0.5)
+        file_count = len([f for f in (files_to_modify or []) if f.startswith("src/")])
+        if file_count == 0:
+            complexity += 0.0
+        elif file_count == 1:
+            complexity += 0.1  # Single file is trivial
+        elif file_count == 2:
+            complexity += 0.2
+        elif file_count <= 4:
+            complexity += 0.35
+        else:
+            complexity += 0.5  # 5+ files is highly complex
+        
+        # Factor 2: Backlog text length (0.0-0.2)
+        text_length = len(backlog_text or "")
+        if text_length < 100:
+            complexity += 0.0
+        elif text_length < 300:
+            complexity += 0.08
+        elif text_length < 600:
+            complexity += 0.15
+        else:
+            complexity += 0.2
+        
+        # Factor 3: Complexity keywords (0.0-0.2)
+        complexity_keywords = [
+            "refactor", "redesign", "rewrite", "migration",
+            "optimization", "restructure", "overhaul", "rearchitect",
+        ]
+        backlog_lower = (backlog_text or "").lower()
+        keyword_count = sum(1 for kw in complexity_keywords if kw in backlog_lower)
+        complexity += min(0.2, keyword_count * 0.05)
+        
+        # Factor 4: Symbol targets count (0.0-0.1)
+        if target_symbols:
+            total_symbols = sum(len(symbols) for symbols in target_symbols.values())
+            complexity += min(0.1, total_symbols * 0.02)
+        
+        return min(1.0, complexity)
+
+    @staticmethod
+    def _optimal_lane_count(complexity: float) -> int:
+        """
+        Map complexity score to optimal lane count (1-5).
+        
+        Args:
+            complexity: 0.0-1.0 score
+        
+        Returns: 1-5 lanes
+        """
+        if complexity < 0.15:
+            return 1  # Trivial: single focused change
+        elif complexity < 0.35:
+            return 2  # Simple: small refactor
+        elif complexity < 0.55:
+            return 3  # Medium: standard workload
+        elif complexity < 0.75:
+            return 4  # High: large workload
+        else:
+            return 5  # Very high: maximum parallelism
+
+    @staticmethod
     def _default_source_targets(repo_profile: str) -> list[str]:
         if repo_profile == "upload":
             return ["src/file_validator.py", "src/upload_service.py"]
@@ -460,7 +541,14 @@ def process_records(records: list[dict]) -> dict:
             return ["src/pipeline.py"]
         return []
 
-    def _build_engineer_lanes(self, files_to_modify: list[str], repo_profile: str) -> list[dict[str, object]]:
+    def _build_engineer_lanes(
+        self,
+        files_to_modify: list[str],
+        repo_profile: str,
+        backlog_text: str = "",
+        target_symbols: dict[str, list[str]] | None = None,
+    ) -> list[dict[str, object]]:
+        """Build engineer lanes with dynamic count based on complexity."""
         source_targets = sorted({file for file in files_to_modify if file.startswith("src/")})
         required_targets = self._default_source_targets(repo_profile)
         source_targets = sorted(set(source_targets + required_targets))
@@ -468,7 +556,13 @@ def process_records(records: list[dict]) -> dict:
         if not source_targets:
             return [{"lane_id": "engineer_1", "files": []}]
 
-        max_lanes = min(3, len(source_targets))
+        # Calculate complexity and get optimal lane count
+        complexity = self._calculate_complexity(backlog_text, source_targets, target_symbols)
+        max_lanes = self._optimal_lane_count(complexity)
+        
+        # Cap lanes by number of files
+        max_lanes = min(max_lanes, len(source_targets))
+        
         lane_buckets: list[list[str]] = [[] for _ in range(max_lanes)]
         for index, file_name in enumerate(source_targets):
             lane_buckets[index % max_lanes].append(file_name)
@@ -622,7 +716,12 @@ def process_records(records: list[dict]) -> dict:
         changed_files: list[str] = []
         patch_notes: list[str] = []
         repo_profile = self._detect_repo_profile(str(sandbox_path))
-        lanes = self._build_engineer_lanes(plan.files_to_modify, repo_profile)
+        lanes = self._build_engineer_lanes(
+            plan.files_to_modify,
+            repo_profile,
+            backlog_text=backlog_text,
+            target_symbols=plan.target_symbols,
+        )
         lane_summaries: list[str] = []
 
         for lane in lanes:

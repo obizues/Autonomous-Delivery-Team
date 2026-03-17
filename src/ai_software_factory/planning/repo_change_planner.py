@@ -70,20 +70,44 @@ class RepoChangePlanner:
             )
 
         if not files_to_modify:
-            files_to_modify = [
-                "src/file_validator.py",
-                "src/upload_service.py",
-                "tests/test_file_validator.py",
-                "tests/test_upload_service.py",
-            ]
-            target_symbols = {
-                "src/file_validator.py": ["validate_upload"],
-                "src/upload_service.py": ["upload_document"],
-            }
-            target_confidence = {
-                "src/file_validator.py": 0.55,
-                "src/upload_service.py": 0.55,
-            }
+            # Detect repo profile to suggest appropriate defaults
+            repo_profile = "upload"
+            src_path = Path(repo_path) / "src"
+            if (src_path / "auth_service.py").exists() and (src_path / "token_store.py").exists():
+                repo_profile = "auth"
+            elif (src_path / "pipeline.py").exists() and (src_path / "validators.py").exists():
+                repo_profile = "pipeline"
+            
+            # Use profile-specific defaults
+            if repo_profile == "auth":
+                files_to_modify = ["src/auth_service.py"]
+                target_symbols = {
+                    "src/auth_service.py": ["login", "FAILED_ATTEMPTS"],
+                }
+                target_confidence = {
+                    "src/auth_service.py": 0.55,
+                }
+            elif repo_profile == "pipeline":
+                files_to_modify = ["src/pipeline.py"]
+                target_symbols = {
+                    "src/pipeline.py": ["process_records"],
+                }
+                target_confidence = {
+                    "src/pipeline.py": 0.55,
+                }
+            else:  # upload
+                files_to_modify = [
+                    "src/file_validator.py",
+                    "src/upload_service.py",
+                ]
+                target_symbols = {
+                    "src/file_validator.py": ["validate_upload"],
+                    "src/upload_service.py": ["upload_document"],
+                }
+                target_confidence = {
+                    "src/file_validator.py": 0.55,
+                    "src/upload_service.py": 0.55,
+                }
 
         if intent == IntentCategory.DATA_MODEL:
             for rel_path, indexed in symbol_index.items():

@@ -1,6 +1,19 @@
 from __future__ import annotations
 
+import pickle
+import sqlite3
+from pathlib import Path
+from typing import Protocol
+
 from ai_software_factory.workflow.state import WorkflowState
+
+
+class StateStore(Protocol):
+    def save(self, state: WorkflowState) -> None:
+        ...
+
+    def load(self, workflow_id: str) -> WorkflowState:
+        ...
 
 
 class InMemoryStateStore:
@@ -12,3 +25,43 @@ class InMemoryStateStore:
 
     def load(self, workflow_id: str) -> WorkflowState:
         return self._states[workflow_id]
+
+
+class SQLiteStateStore:
+    def __init__(self, db_path: str | Path) -> None:
+        self._db_path = Path(db_path)
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(str(self._db_path))
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS workflow_states (
+                workflow_id TEXT PRIMARY KEY,
+                payload BLOB NOT NULL
+            )
+            """
+        )
+        self._conn.commit()
+
+    def save(self, state: WorkflowState) -> None:
+        payload = sqlite3.Binary(pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL))
+        self._conn.execute(
+            """
+            INSERT INTO workflow_states (workflow_id, payload)
+            VALUES (?, ?)
+            ON CONFLICT(workflow_id) DO UPDATE SET payload=excluded.payload
+            """,
+            (state.workflow_id, payload),
+        )
+        self._conn.commit()
+
+    def load(self, workflow_id: str) -> WorkflowState:
+        row = self._conn.execute(
+            "SELECT payload FROM workflow_states WHERE workflow_id = ?",
+            (workflow_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(workflow_id)
+        return pickle.loads(row[0])
+
+    def close(self) -> None:
+        self._conn.close()

@@ -15,9 +15,9 @@ from ai_software_factory.execution.test_runner import PytestRunner
 from ai_software_factory.events.bus import EventBus
 from ai_software_factory.governance.approvals import ApprovalService
 from ai_software_factory.governance.escalations import EscalationService
+from ai_software_factory.persistence.artifact_store import InMemoryArtifactStore, SQLiteArtifactStore
+from ai_software_factory.persistence.state_store import InMemoryStateStore, SQLiteStateStore
 from ai_software_factory.planning.repo_change_planner import RepoChangePlanner
-from ai_software_factory.persistence.artifact_store import InMemoryArtifactStore
-from ai_software_factory.persistence.state_store import InMemoryStateStore
 from ai_software_factory.workflow.engine import WorkflowEngine
 
 
@@ -114,9 +114,21 @@ def build_demo_backlog(seed_repo_name: str | None = None) -> BacklogItem:
     )
 
 
-def create_engine(seed_repo_name: str | None = None) -> WorkflowEngine:
-    state_store = InMemoryStateStore()
-    artifact_store = InMemoryArtifactStore()
+def create_engine(
+    seed_repo_name: str | None = None,
+    persistence_backend: str | None = None,
+    sqlite_path: str | None = None,
+) -> WorkflowEngine:
+    selected_backend = (persistence_backend or os.getenv("ASF_PERSISTENCE_BACKEND", "memory")).lower()
+    selected_sqlite_path = sqlite_path or os.getenv("ASF_SQLITE_PATH", "generated_workspace/asf_state.db")
+
+    if selected_backend in {"sqlite", "sql"}:
+        state_store = SQLiteStateStore(selected_sqlite_path)
+        artifact_store = SQLiteArtifactStore(selected_sqlite_path)
+    else:
+        state_store = InMemoryStateStore()
+        artifact_store = InMemoryArtifactStore()
+
     event_bus = EventBus()
     approval_service = ApprovalService()
     escalation_service = EscalationService()

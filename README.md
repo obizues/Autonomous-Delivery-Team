@@ -150,6 +150,17 @@ python scripts/demo_acceptance.py
 streamlit run ui/app.py
 ```
 
+### Optional: Enable SQLite Persistence
+```bash
+# Default behavior is in-memory persistence
+# Enable SQLite-backed state/artifact persistence for runs:
+set ASF_PERSISTENCE_BACKEND=sqlite   # Windows PowerShell: $env:ASF_PERSISTENCE_BACKEND='sqlite'
+set ASF_SQLITE_PATH=generated_workspace/asf_state.db
+
+# Then run as usual
+python scripts/demo_acceptance.py
+```
+
 ### Run Single Workflow
 ```python
 from src.ai_software_factory.orchestration.runner import run_demo_workflow

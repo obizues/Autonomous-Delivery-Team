@@ -9,8 +9,8 @@ from ai_software_factory.domain.models import BacklogItem, PullRequest, ReviewFe
 from ai_software_factory.events.bus import EventBus
 from ai_software_factory.governance.approvals import ApprovalService
 from ai_software_factory.governance.escalations import EscalationService
-from ai_software_factory.persistence.artifact_store import InMemoryArtifactStore
-from ai_software_factory.persistence.state_store import InMemoryStateStore
+from ai_software_factory.persistence.artifact_store import ArtifactStore
+from ai_software_factory.persistence.state_store import StateStore
 from ai_software_factory.workflow.state import WorkflowState
 from ai_software_factory.workflow.transitions import STAGE_TO_ROLE, default_next_stage, is_review_gate
 
@@ -18,8 +18,8 @@ from ai_software_factory.workflow.transitions import STAGE_TO_ROLE, default_next
 class WorkflowEngine:
     def __init__(
         self,
-        state_store: InMemoryStateStore,
-        artifact_store: InMemoryArtifactStore,
+        state_store: StateStore,
+        artifact_store: ArtifactStore,
         event_bus: EventBus,
         agents: dict[str, Agent],
         approval_service: ApprovalService,

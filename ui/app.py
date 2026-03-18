@@ -1270,6 +1270,16 @@ def render_summary_tab(
     n_events = len(events)
     approved = count_decisions(events, "APPROVED")
     changes_req = count_decisions(events, "REQUEST_CHANGES")
+    pull_requests = [a for a in artifacts if a["type"] == "PullRequest"]
+    latest_revision = None
+    try:
+        latest_revision = int(revision_count)
+    except (TypeError, ValueError):
+        latest_revision = None
+    latest_revision_prs = [
+        a for a in pull_requests
+        if latest_revision is not None and int(a.get("version", 1)) == latest_revision
+    ]
 
     # ── Feature card ──────────────────────────────────────────────────────
     status_badge = (
@@ -1294,6 +1304,7 @@ def render_summary_tab(
                 <span style="color:{_tokens['text_secondary']};font-size:0.85rem">📡&nbsp;Events: <strong>{n_events}</strong></span>
                 <span style="color:{_tokens['text_secondary']};font-size:0.85rem">✅&nbsp;Gates approved: <strong>{approved}</strong></span>
                 <span style="color:{_tokens['text_secondary']};font-size:0.85rem">⚠&nbsp;Revision requests: <strong>{changes_req}</strong></span>
+                <span style="color:{_tokens['text_secondary']};font-size:0.85rem">🔀&nbsp;PRs (latest revision): <strong>{len(latest_revision_prs)}</strong></span>
             </div>
         </div>
         """,

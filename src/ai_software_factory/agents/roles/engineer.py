@@ -883,25 +883,90 @@ def process_records(records: list[dict]) -> dict:
 
         backlog = context.latest(BacklogItem)
         title = backlog.title if backlog else "Feature"
-
-        pr = PullRequest(
-            workflow_id=workflow_id,
-            stage=state.current_stage,
-            created_by=self.role,
-            status=ArtifactStatus.FINAL,
-            version=revision,
-            title=f"feat(repo-mode): {title} — revision {revision}",
-            description="Applies semantic repo-aware patching in sandbox based on failure context.",
-            implementation_artifact_id=implementation.artifact_id,
-            files_modified=implementation.written_source_files,
-            architecture_alignment="Source modules remain isolated by responsibility while applying targeted fixes.",
-            test_coverage="pytest suite validates rejected oversized uploads with explicit reason and valid upload flow.",
-            known_limitations=[
-                "Symbol-level patching currently targets top-level functions only",
-                "Semantic mapper is heuristic-based and Python-only",
-            ],
+        backlog_text = "\n".join(
+            [
+                backlog.title if backlog else "",
+                backlog.problem_statement if backlog else "",
+                "\n".join(backlog.acceptance_criteria) if backlog else "",
+            ]
         )
-        return StageResult(produced_artifacts=[pr], notes="Pull request artifact created for semantic sandbox changes.")
+
+        changed_source_files = sorted({
+            file_name
+            for file_name in (implementation.written_source_files or [])
+            if file_name.startswith("src/")
+        })
+
+        if not changed_source_files:
+            pr = PullRequest(
+                workflow_id=workflow_id,
+                stage=state.current_stage,
+                created_by=self.role,
+                status=ArtifactStatus.FINAL,
+                version=revision,
+                title=f"feat(repo-mode): {title} — revision {revision}",
+                description="Applies semantic repo-aware patching in sandbox based on failure context.",
+                implementation_artifact_id=implementation.artifact_id,
+                files_modified=implementation.written_source_files,
+                architecture_alignment="Source modules remain isolated by responsibility while applying targeted fixes.",
+                test_coverage="pytest suite validates profile-specific behavior in sandbox.",
+                known_limitations=[
+                    "Symbol-level patching currently targets top-level functions only",
+                    "Semantic mapper is heuristic-based and Python-only",
+                ],
+            )
+            return StageResult(produced_artifacts=[pr], notes="Pull request artifact created for semantic sandbox changes.")
+
+        complexity = self._calculate_complexity(
+            backlog_text=backlog_text,
+            files_to_modify=changed_source_files,
+            target_symbols=None,
+        )
+        lane_count = min(self._optimal_lane_count(complexity), len(changed_source_files))
+
+        lane_buckets: list[list[str]] = [[] for _ in range(max(1, lane_count))]
+        for index, file_name in enumerate(changed_source_files):
+            lane_buckets[index % len(lane_buckets)].append(file_name)
+
+        pull_requests: list[PullRequest] = []
+        for lane_index, lane_files in enumerate(lane_buckets, start=1):
+            if not lane_files:
+                continue
+            lane_id = f"engineer_{lane_index}"
+            pr = PullRequest(
+                workflow_id=workflow_id,
+                stage=state.current_stage,
+                created_by=self.role,
+                status=ArtifactStatus.FINAL,
+                version=revision,
+                title=f"feat(repo-mode): {title} — revision {revision} [{lane_id}]",
+                description=(
+                    "Applies semantic repo-aware patching in sandbox based on failure context. "
+                    f"Scoped to {lane_id} lane files."
+                ),
+                implementation_artifact_id=implementation.artifact_id,
+                files_modified=sorted(lane_files),
+                architecture_alignment=(
+                    "Each lane keeps module boundaries isolated while supporting parallel code review and integration."
+                ),
+                test_coverage=(
+                    "pytest validates behavior after lane integration; lane-specific scope derived from implementation partitioning."
+                ),
+                known_limitations=[
+                    "Lane PRs are generated from file partitioning rather than independent branch history",
+                    "Symbol-level patching currently targets top-level functions only",
+                    "Semantic mapper is heuristic-based and Python-only",
+                ],
+            )
+            pull_requests.append(pr)
+
+        if not pull_requests:
+            return StageResult(decision=Decision.REQUEST_CHANGES, notes="Unable to generate lane pull requests.")
+
+        return StageResult(
+            produced_artifacts=pull_requests,
+            notes=f"Generated {len(pull_requests)} lane pull request artifacts for parallel engineer review.",
+        )
 
     def _peer_review_stage(self, context: AgentContext) -> StageResult:
         state = context.workflow_state
@@ -909,7 +974,12 @@ def process_records(records: list[dict]) -> dict:
         revision = state.revision
 
         implementation = context.latest(CodeImplementation)
-        pr = context.latest(PullRequest)
+        revision_prs = [
+            artifact
+            for artifact in context.artifacts
+            if isinstance(artifact, PullRequest) and artifact.version == revision
+        ]
+        pr = revision_prs[-1] if revision_prs else context.latest(PullRequest)
         
         # If no implementation, reject
         if implementation is None:
@@ -946,6 +1016,7 @@ def process_records(records: list[dict]) -> dict:
                 f"- Documentation: {review_metrics['documentation_score']:.0%}",
                 f"- Test Alignment: {review_metrics['test_alignment_score']:.0%}",
                 f"- Overall Score: {overall_score:.0%}",
+                f"- Pull Requests Reviewed: {len(revision_prs) if revision_prs else (1 if pr else 0)}",
             ]
             
             if decision == Decision.APPROVED:

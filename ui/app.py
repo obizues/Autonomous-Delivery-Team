@@ -880,15 +880,54 @@ def render_summary_tab(
             icon="✅",
         )
     else:
-        if status == "COMPLETED":
-            st.info("These are historical issues that were raised earlier and resolved during later revisions.")
-        elif status == "ESCALATED":
-            st.warning("These issues are still relevant to the current escalated state.")
-        else:
-            st.caption("This section shows revision history, including prior resolved issues.")
+        decisions_by_gate = stage_decisions(events)
+        latest_gate_decision = {
+            gate: values[-1] if values else ""
+            for gate, values in decisions_by_gate.items()
+        }
+        latest_request_rev_by_gate: dict[str, int] = {}
         for entry in issues_list:
+            gate = str(entry.get("gate", ""))
+            revision = int(entry.get("revision", 0) or 0)
+            latest_request_rev_by_gate[gate] = max(revision, latest_request_rev_by_gate.get(gate, 0))
+
+        open_issues: list[dict] = []
+        resolved_issues: list[dict] = []
+        for entry in issues_list:
+            gate = str(entry.get("gate", ""))
+            revision = int(entry.get("revision", 0) or 0)
+            is_open = (
+                latest_gate_decision.get(gate) == "REQUEST_CHANGES"
+                and revision == latest_request_rev_by_gate.get(gate, -1)
+            )
+            if is_open:
+                open_issues.append(entry)
+            else:
+                resolved_issues.append(entry)
+
+        st.markdown(f"**Open now:** {len(open_issues)} · **Resolved history:** {len(resolved_issues)}")
+
+        if open_issues:
+            st.warning("Open issues are from the latest unresolved review decision(s).")
+            for entry in open_issues:
+                with st.expander(
+                    f"🚨 **OPEN · {entry['stage_label']}** requested changes · `{entry['artifact_type']}`",
+                    expanded=True,
+                ):
+                    if entry["issues"]:
+                        st.markdown("**Issues identified:**")
+                        for issue in entry["issues"]:
+                            st.markdown(f"- {issue}")
+                    if entry["suggestions"]:
+                        st.markdown("**Suggested changes:**")
+                        for suggestion in entry["suggestions"]:
+                            st.markdown(f"- {suggestion}")
+        else:
+            st.success("No open issues. Remaining entries below are historical and already resolved.")
+
+        for entry in resolved_issues:
             with st.expander(
-                f"🕘 **{entry['stage_label']}** requested changes · `{entry['artifact_type']}`",
+                f"✅ **RESOLVED · {entry['stage_label']}** requested changes · `{entry['artifact_type']}`",
                 expanded=False,
             ):
                 if entry["issues"]:
@@ -897,8 +936,8 @@ def render_summary_tab(
                         st.markdown(f"- {issue}")
                 if entry["suggestions"]:
                     st.markdown("**Suggested changes:**")
-                    for s in entry["suggestions"]:
-                        st.markdown(f"- {s}")
+                    for suggestion in entry["suggestions"]:
+                        st.markdown(f"- {suggestion}")
 
     # ── Final outcome ───────────────────────────────────────────────────────
     st.divider()
@@ -957,8 +996,8 @@ def render_sidebar(
     artifacts: list[dict],
     events: list[dict],
     snapshots: dict,
-) -> str:
-    """Render sidebar, return selected stage key."""
+) -> None:
+    """Render sidebar controls and run actions."""
     with st.sidebar:
         st.markdown("## 🤖 AI Software Factory")
         st.markdown(f"<small style='color:{_tokens['text_muted']}'>Autonomous Delivery Simulation</small>", unsafe_allow_html=True)
@@ -1129,87 +1168,13 @@ def render_sidebar(
                 if output:
                     st.code(output[-3000:], language="text")
 
-        st.divider()
-        st.markdown("**Work Product View**")
-
-        decisions_map = stage_decisions(events)
-
-        # Build stage labels — expand IMPLEMENTATION/PULL_REQUEST if multi-revision
-        stage_options: list[tuple[str, str, str]] = []  # (key, label, badge_html)
-        for s in STAGE_ORDER:
-            icon, label, _ = STAGE_META.get(s, ("•", s, ""))
-            snaps = snapshots.get(s, [])
-            if not snaps and s != "DONE":
-                continue
-
-            if s == "IMPLEMENTATION":
-                for i, snap in enumerate(snaps):
-                    rev = snap.get("revision", i + 1)
-                    key = f"{s}__rev{rev}"
-                    stage_options.append((key, f"{icon} {label} (Rev {rev})", ""))
-            elif s == "PULL_REQUEST_CREATED":
-                for i, snap in enumerate(snaps):
-                    rev = snap.get("revision", i + 1)
-                    key = f"{s}__rev{rev}"
-                    stage_options.append((key, f"{icon} {label} (Rev {rev})", ""))
-            elif s in REVIEW_GATES:
-                dec_list = decisions_map.get(s, [])
-                for i, snap in enumerate(snaps):
-                    rev = snap.get("revision", i + 1)
-                    key = f"{s}__rev{rev}"
-                    dec = dec_list[i] if i < len(dec_list) else ""
-                    badge = decision_badge(dec) if dec else ""
-                    stage_options.append((key, f"{icon} {label} (Rev {rev})", badge))
-            elif s == "DONE":
-                stage_options.append((s, f"{icon} Done", ""))
-            else:
-                stage_options.append((s, f"{icon} {label}", ""))
-
-        labels = [opt[1] for opt in stage_options]
-        keys = [opt[0] for opt in stage_options]
-
-        if not labels:
-            labels = ["🎉 Done"]
-            keys = ["DONE"]
-
-        preferred_order = [
-            "TEST_VALIDATION_GATE",
-            "IMPLEMENTATION",
-            "PULL_REQUEST_CREATED",
-            "ARCHITECTURE_DESIGN",
-            "PRODUCT_DEFINITION",
-        ]
-        default_index = max(0, len(labels) - 1)
-        for preferred_stage in preferred_order:
-            for index in range(len(keys) - 1, -1, -1):
-                if keys[index].startswith(preferred_stage):
-                    default_index = index
-                    break
-            if default_index != max(0, len(labels) - 1):
-                break
-
-        if status == "ESCALATED":
-            for index, key in enumerate(keys):
-                if key == "DONE":
-                    default_index = index
-                    break
-
-        selected_label = st.selectbox(
-            "Stage",
-            options=labels,
-            index=default_index,
-            help="Defaults to the most informative stage (usually latest test/implementation), not DONE.",
-        )
-        selected_key = keys[labels.index(selected_label)]
-
-    return selected_key
+    return
 
 
 # ── Main area ─────────────────────────────────────────────────────────────────
 
 
 def render_main(
-    selected_key: str,
     readme: dict,
     artifacts: list[dict],
     events: list[dict],
@@ -1368,8 +1333,8 @@ def main() -> None:
         st.warning("Demo output directory exists but contains no artifacts yet.")
         return
 
-    selected_key = render_sidebar(readme, artifacts, events, snapshots)
-    render_main(selected_key, readme, artifacts, events, snapshots)
+    render_sidebar(readme, artifacts, events, snapshots)
+    render_main(readme, artifacts, events, snapshots)
 
 if __name__ == "__main__" or True:
     main()

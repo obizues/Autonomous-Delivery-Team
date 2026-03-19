@@ -872,10 +872,16 @@ def render_summary_tab(
         if notes:
             st.caption(notes)
 
-        if checklist and decision == "APPROVED":
-            with st.expander(f"Acceptance checklist ({len(checklist)} criteria)", expanded=False):
+        if checklist:
+            marker = "✅" if decision == "APPROVED" else "❌" if decision == "REQUEST_CHANGES" else "⚠️"
+            title = (
+                f"Acceptance checklist ({len(checklist)} criteria)"
+                if decision == "APPROVED"
+                else f"Outstanding criteria ({len(checklist)})"
+            )
+            with st.expander(title, expanded=False):
                 for c in checklist:
-                    st.markdown(f"- ✅ {c}")
+                    st.markdown(f"- {marker} {c}")
     elif status == "COMPLETED":
         st.success("Workflow completed successfully. Feature accepted by Product Owner.", icon="🎉")
     else:

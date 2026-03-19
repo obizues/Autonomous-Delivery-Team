@@ -1174,6 +1174,8 @@ def process_records(records: list[dict]) -> dict:
             if lane_id
         ]
         cross_review_matrix = self._build_cross_review_matrix(lane_ids)
+        reviewer_lanes = sorted(set(cross_review_matrix.values()))
+        reviewer_label = ", ".join(reviewer_lanes) if reviewer_lanes else "peer_engineer"
 
         if pr is None:
             review = ReviewFeedback(
@@ -1246,7 +1248,7 @@ def process_records(records: list[dict]) -> dict:
                 created_by=self.role,
                 status=ArtifactStatus.FINAL,
                 version=revision,
-                reviewer="peer_engineer",
+                reviewer=reviewer_label,
                 decision=decision,
                 comments="\n".join(comments_parts),
                 issues_identified=review_metrics["issues"],
@@ -1263,7 +1265,7 @@ def process_records(records: list[dict]) -> dict:
                 created_by=self.role,
                 status=ArtifactStatus.FINAL,
                 version=revision,
-                reviewer="peer_engineer",
+                reviewer=reviewer_label,
                 decision=Decision.APPROVED,
                 comments=f"Peer review passed. Implementation artifact present (analysis: {str(e)[:50]}...)",
                 issues_identified=[],

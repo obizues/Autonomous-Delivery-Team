@@ -3,13 +3,17 @@
 
 This project is maintained in the GitHub repository [obizues/Autonomous-Delivery-Team](https://github.com/obizues/Autonomous-Delivery-Team) on the `main` branch.
 
-Version: **v0.2.0**
+Version: **v0.3.1**
 
-![Release](https://img.shields.io/badge/release-v0.2.0-2563eb)
+![Release](https://img.shields.io/badge/release-v0.3.1-2563eb)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
 ![Docs](https://img.shields.io/badge/docs-ready-16a34a)
 
-Autonomous Delivery System enables automated software delivery workflows with cross-repo autonomy. See docs/ROADMAP.md and docs/V0_4_CROSS_REPO_AUTONOMY_BACKLOG.md for planning and backlog.
+Autonomous Delivery System enables automated software delivery workflows with cross-repo autonomy.
+
+**Status:** All tests passing (v0.3.1, dummy agent logic, escalation patch, TODOs for real features)
+
+See docs/ROADMAP.md and docs/V0_4_CROSS_REPO_AUTONOMY_BACKLOG.md for planning and backlog.
 
 ## Maintainer
 - Owner: obizues

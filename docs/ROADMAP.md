@@ -1,8 +1,10 @@
 # Roadmap
 
+
 ## Current Release
 
-- `v0.2.0` baseline established with escalation decision telemetry and hardened review gates.
+- `v0.3.1` (all tests passing, dummy agent logic, escalation patch, TODOs for real features)
+- v0.3.1 tagged and pushed to main.
 - v0.3 planning checklist: `V0_3_AUTONOMY_HARDENING_CHECKLIST.md`
 
 ## Next Planned Items

@@ -2,6 +2,10 @@
 
 Version: **v0.1.0**
 
+![Release](https://img.shields.io/badge/release-v0.1.0-2563eb)
+![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
+![Docs](https://img.shields.io/badge/docs-ready-16a34a)
+
 An autonomous software delivery simulation platform that orchestrates role-based AI agents from backlog intake through production acceptance, with parallel engineer execution, governance gates, revision loops, and escalation/resume handling.
 
 ## Why This Matters

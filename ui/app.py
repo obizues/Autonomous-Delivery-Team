@@ -686,9 +686,9 @@ def render_summary_tab(
     snapshots: dict,
 ) -> None:
     active_context = detect_active_context(artifacts, events)
-    lane_insights, _, _, _ = engineer_revision_rollup(artifacts, events)
-    latest_lane_revision = max(lane_insights.keys()) if lane_insights else None
-    latest_lane_rows = lane_insights.get(latest_lane_revision, []) if latest_lane_revision is not None else []
+    # Single authoritative rollup — reused throughout this function
+    lane_insights, cross_reviews, merge_gate, latest_engineer_revision = engineer_revision_rollup(artifacts, events)
+    latest_lane_rows = lane_insights.get(latest_engineer_revision, []) if latest_engineer_revision is not None else []
     engineer_lane_count = len(latest_lane_rows)
     engineer_lane_ids = [str(row.get("lane_id", "")) for row in latest_lane_rows if row.get("lane_id")]
     title = get_backlog_title(artifacts)
@@ -697,7 +697,7 @@ def render_summary_tab(
     wf_id = readme.get("workflow_id", "—")
     latest_revision = latest_observed_revision(artifacts, events, snapshots, readme)
     revision_count = str(latest_revision) if latest_revision is not None else readme.get("revision_count", "—")
-    n_artifacts = len([a for a in artifacts if a["md"]])
+    n_artifacts = len(artifacts)
     n_events = len(events)
     approved = count_decisions(events, "APPROVED")
     changes_req = count_decisions(events, "REQUEST_CHANGES")
@@ -793,8 +793,6 @@ def render_summary_tab(
                     status_color = "#4ade80" if applied > 0 and failed == 0 else "#f87171" if failed > 0 else "#60a5fa"
                     status_text = f"✅ {applied}" if applied > 0 and failed == 0 else f"❌ {applied}/{failed}" if failed > 0 else "⏳"
                     st.markdown(f"<div style='background:#f0f9ff;border-left:4px solid {status_color};padding:8px;border-radius:6px'><strong>{lane_id}</strong><br><small>{lane_summary.split(lane_id)[1].strip()}</small><div style='margin-top:4px;color:{status_color};font-weight:700'>{status_text}</div></div>", unsafe_allow_html=True)
-
-    lane_insights, cross_reviews, merge_gate, latest_engineer_revision = engineer_revision_rollup(artifacts, events)
 
     if latest_engineer_revision is not None:
         with st.expander("🧑‍💻 Engineer Control Tower", expanded=False):
@@ -1427,5 +1425,4 @@ def main() -> None:
     render_sidebar(readme, artifacts, events, snapshots)
     render_main(readme, artifacts, events, snapshots)
 
-if __name__ == "__main__" or True:
-    main()
+main()

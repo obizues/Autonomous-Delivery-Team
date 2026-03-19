@@ -547,7 +547,7 @@ def render_revision_insights_tab(readme: dict, artifacts: list[dict], events: li
                 score_chart_rows,
                 x="revision",
                 y=["peer_score_pct", "arch_score_pct"],
-                use_container_width=True,
+                width="stretch",
             )
         with c2:
             st.markdown("**Failed Tests Trend**")
@@ -555,12 +555,12 @@ def render_revision_insights_tab(readme: dict, artifacts: list[dict], events: li
                 test_chart_rows,
                 x="revision",
                 y="failed_tests",
-                use_container_width=True,
+                width="stretch",
             )
 
         st.dataframe(
             trend_rows,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
         st.caption("Goal: scores trend up, failed test counts trend down, and gate decisions converge to APPROVED.")
@@ -1157,7 +1157,7 @@ def render_sidebar(
                     "re-escalates. Each rejection = ~6 stage transitions. 3 = ~39 steps budget."
                 ),
             )
-            if st.button("▶ Resolve escalation and resume", use_container_width=True, key="sidebar_resume_escalation"):
+            if st.button("▶ Resolve escalation and resume", width="stretch", key="sidebar_resume_escalation"):
                 if not wf_id or wf_id == "—":
                     st.error("Workflow ID missing; cannot resume this escalation.")
                 elif not human_response_sidebar.strip():
@@ -1212,7 +1212,7 @@ def render_sidebar(
             key="repo_ref_input",
             help="Optional branch, tag, or commit to checkout after clone.",
         )
-        if st.button("▶ Run Workflow", use_container_width=True):
+        if st.button("▶ Run Workflow", width="stretch"):
             target_label = repo_url.strip() or selected_seed_repo
             with st.spinner(f"Running workflow for {target_label}..."):
                 success, output = run_workflow_from_dashboard(
@@ -1234,7 +1234,7 @@ def render_sidebar(
                 if output:
                     st.code(output[-3000:], language="text")
 
-        if st.button("⚠ Run Escalation Demo", use_container_width=True):
+        if st.button("⚠ Run Escalation Demo", width="stretch"):
             with st.spinner("Running escalation demo scenario..."):
                 success, output = run_escalation_demo_from_dashboard()
 

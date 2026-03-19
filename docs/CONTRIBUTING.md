@@ -30,3 +30,13 @@ Changes should include docs updates when they alter:
 - gate behavior,
 - artifact semantics,
 - dashboard terminology.
+
+Before opening a PR, check the requirements mapping in `docs/OPERATIONS.md` under **Requirements Traceability** and ensure your change preserves or updates its verification path.
+
+Minimum verification for workflow-affecting changes:
+
+```powershell
+$env:PYTHONPATH='src'
+python scripts/demo_acceptance.py
+python scripts/demo_resume_e2e.py
+```

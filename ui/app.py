@@ -943,14 +943,50 @@ def render_sidebar(
                 key="sidebar_human_escalation_response",
                 help="Explain how the team should proceed before resuming the workflow.",
             )
+
+            resume_stage_option = st.selectbox(
+                "Resume stage",
+                options=[
+                    "IMPLEMENTATION",
+                    "MERGE_CONFLICT_GATE",
+                    "PEER_CODE_REVIEW_GATE",
+                    "TEST_VALIDATION_GATE",
+                ],
+                index=0,
+                key="sidebar_resume_stage",
+                help="Choose where execution should resume after escalation is resolved.",
+            )
+            responder_name = st.text_input(
+                "Responder identity",
+                value="human_operator",
+                key="sidebar_resume_responder",
+                help="Recorded on the HumanIntervention artifact.",
+            )
+            resume_max_steps = st.number_input(
+                "Resume max steps",
+                min_value=20,
+                max_value=300,
+                value=120,
+                step=10,
+                key="sidebar_resume_max_steps",
+                help="Safety limit for stage transitions after resume.",
+            )
             if st.button("▶ Resolve escalation and resume", use_container_width=True, key="sidebar_resume_escalation"):
                 if not wf_id or wf_id == "—":
                     st.error("Workflow ID missing; cannot resume this escalation.")
                 elif not human_response_sidebar.strip():
                     st.error("Enter guidance before resuming the workflow.")
+                elif not responder_name.strip():
+                    st.error("Responder identity is required.")
                 else:
                     with st.spinner("Recording guidance and resuming workflow..."):
-                        success, output = run_resume_from_dashboard(wf_id, human_response_sidebar.strip())
+                        success, output = run_resume_from_dashboard(
+                            wf_id,
+                            human_response_sidebar.strip(),
+                            resume_stage=resume_stage_option,
+                            responder=responder_name.strip(),
+                            resume_max_steps=int(resume_max_steps),
+                        )
                     if success:
                         st.success("Workflow resumed.")
                         st.code(output[-1500:] if output else "Resumed", language="text")

@@ -80,6 +80,8 @@ python scripts/demo_acceptance.py
 
 - Run escalation demo:
   - `python ui/launcher.py --escalation-demo`
+- Run resume e2e test:
+  - `python scripts/demo_resume_e2e.py`
 - Run engine directly:
   - `python -m ai_software_factory`
 - Run dashboard directly:
@@ -128,6 +130,9 @@ For external viewers, include dashboard screenshots under `docs/assets/screensho
 - Resume from escalation
   - `ASF_RESUME_WORKFLOW_ID`
   - `ASF_HUMAN_RESPONSE`
+  - `ASF_RESUME_STAGE` (e.g., `IMPLEMENTATION`, `MERGE_CONFLICT_GATE`, `TEST_VALIDATION_GATE`)
+  - `ASF_RESUME_RESPONDER` (identity recorded in HumanIntervention)
+  - `ASF_RESUME_MAX_STEPS` (safety limit for post-resume transitions)
 - Optional LLM support
   - `LLM_API_KEY`
   - `LLM_API_PROVIDER` (`openai|anthropic`)

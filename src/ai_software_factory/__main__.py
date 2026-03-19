@@ -15,6 +15,25 @@ from ai_software_factory.domain.models import CodeImplementation, TestResult
 from ai_software_factory.orchestration.runner import build_demo_backlog, create_engine
 
 
+def _parse_resume_stage(raw_value: str | None) -> WorkflowStage:
+    if not raw_value:
+        return WorkflowStage.IMPLEMENTATION
+    normalized = raw_value.strip().upper()
+    try:
+        return WorkflowStage[normalized]
+    except KeyError:
+        return WorkflowStage.IMPLEMENTATION
+
+
+def _parse_int(raw_value: str | None, default: int) -> int:
+    if raw_value is None:
+        return default
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _to_serializable(value: Any) -> Any:
     if is_dataclass(value):
         return {key: _to_serializable(item) for key, item in asdict(value).items()}
@@ -194,6 +213,10 @@ def main() -> None:
     selected_repo_ref = os.getenv("ASF_REPO_REF")
     resume_workflow_id = os.getenv("ASF_RESUME_WORKFLOW_ID")
     human_response = os.getenv("ASF_HUMAN_RESPONSE", "")
+    resume_stage = _parse_resume_stage(os.getenv("ASF_RESUME_STAGE"))
+    resume_responder = os.getenv("ASF_RESUME_RESPONDER", "human_operator")
+    resume_max_steps = max(20, _parse_int(os.getenv("ASF_RESUME_MAX_STEPS"), 120))
+    run_max_steps = resume_max_steps if resume_workflow_id else 500
     repo_source = selected_repo_url or selected_seed_repo
     engine = create_engine(
         seed_repo_name=selected_seed_repo,
@@ -210,6 +233,8 @@ def main() -> None:
         state = engine.resume_from_escalation(
             workflow_id=resume_workflow_id,
             human_response=human_response,
+            responder=resume_responder,
+            resume_stage=resume_stage,
         )
     else:
         backlog_item = build_demo_backlog(selected_seed_repo, repo_url=selected_repo_url)
@@ -229,6 +254,8 @@ def main() -> None:
         print(f"Human response: {human_response}")
     print(f"Backlog item: {backlog_item.title}")
     print(f"Demo output directory: {output_root}")
+    if resume_workflow_id:
+        print(f"Resume policy: stage={resume_stage.value}, responder={resume_responder}, max_steps={run_max_steps}")
     print("-" * 72)
 
     startup_events = engine.event_bus.list_events(workflow_id)
@@ -239,7 +266,12 @@ def main() -> None:
     recorder.record_state_snapshot(state, "START")
     event_index = len(startup_events)
 
+    step_count = 0
     while True:
+        step_count += 1
+        if step_count > run_max_steps:
+            print(f"Stopping run after {run_max_steps} steps due to resume policy max-step limit.")
+            break
         state = engine.state_store.load(workflow_id)
         if state.status != WorkflowStatus.IN_PROGRESS:
             break

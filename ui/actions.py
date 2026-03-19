@@ -67,7 +67,13 @@ def run_escalation_demo_from_dashboard() -> tuple[bool, str]:
     return True, output[-4000:] if output else "Escalation demo completed successfully."
 
 
-def run_resume_from_dashboard(workflow_id: str, human_response: str) -> tuple[bool, str]:
+def run_resume_from_dashboard(
+    workflow_id: str,
+    human_response: str,
+    resume_stage: str = "IMPLEMENTATION",
+    responder: str = "human_operator",
+    resume_max_steps: int = 120,
+) -> tuple[bool, str]:
     try:
         result = subprocess.run(
             [sys.executable, "-m", "ai_software_factory"],
@@ -79,6 +85,9 @@ def run_resume_from_dashboard(workflow_id: str, human_response: str) -> tuple[bo
                 "ASF_SQLITE_PATH": UI_SQLITE_PATH,
                 "ASF_RESUME_WORKFLOW_ID": workflow_id,
                 "ASF_HUMAN_RESPONSE": human_response,
+                "ASF_RESUME_STAGE": resume_stage,
+                "ASF_RESUME_RESPONDER": responder,
+                "ASF_RESUME_MAX_STEPS": str(resume_max_steps),
             },
             capture_output=True,
             text=True,

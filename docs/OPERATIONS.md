@@ -15,7 +15,18 @@
 - `ASF_SQLITE_PATH`
 - `ASF_REPO_URL` / `ASF_REPO_REF`
 - `ASF_RESUME_WORKFLOW_ID` / `ASF_HUMAN_RESPONSE`
+- `ASF_RESUME_STAGE` / `ASF_RESUME_RESPONDER` / `ASF_RESUME_MAX_STEPS`
 - Optional LLM: `LLM_API_KEY`, `LLM_API_PROVIDER`, `LLM_MODEL`
+
+## E2E Resume Health Check
+
+Run:
+
+```powershell
+python scripts/demo_resume_e2e.py
+```
+
+Expected terminal output includes `resume_e2e: PASSED`.
 
 ## Troubleshooting
 

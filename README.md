@@ -104,6 +104,7 @@ autonomous_delivery/
 ## Documentation
 
 - Architecture: `docs/ARCHITECTURE.md`
+- Requirements: `docs/REQUIREMENTS.md`
 - Getting Started: `docs/GETTING_STARTED.md`
 - Operations Runbook: `docs/OPERATIONS.md`
 - Contributing: `docs/CONTRIBUTING.md`

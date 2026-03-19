@@ -3,6 +3,7 @@
 - Project overview: `../README.md`
 - Changelog: `../CHANGELOG.md`
 - Architecture: `ARCHITECTURE.md`
+- Requirements: `REQUIREMENTS.md`
 - Getting Started: `GETTING_STARTED.md`
 - Operations Runbook: `OPERATIONS.md`
 - Contributing Guide: `CONTRIBUTING.md`

@@ -1240,9 +1240,38 @@ def process_records(records: list[dict]) -> dict:
             analyzer = CodeReviewAnalyzer(workspace_path, implementation, pr)
             review_metrics = analyzer.analyze()
             
-            # Revision-aware threshold: stricter on repeated revisions
+            # Fixed threshold across all revisions; quality bar is constant.
             overall_score = review_metrics["overall_score"]
-            approval_threshold = 0.68 if revision >= 2 else 0.60
+            approval_threshold = 0.68
+
+            # Add sensitivity to revision-to-revision change quality so unchanged retries score lower.
+            previous_impl = next(
+                (
+                    artifact
+                    for artifact in reversed(context.artifacts)
+                    if isinstance(artifact, CodeImplementation) and artifact.version == revision - 1
+                ),
+                None,
+            )
+            revision_delta_score = 0.85
+            if previous_impl is not None and implementation is not None:
+                prev_files = set(previous_impl.files_changed or [])
+                curr_files = set(implementation.files_changed or [])
+                prev_summary = (previous_impl.summary or "").strip()
+                curr_summary = (implementation.summary or "").strip()
+                changed_materially = (prev_files != curr_files) or (prev_summary != curr_summary)
+                if not changed_materially:
+                    revision_delta_score = 0.40
+                    review_metrics["issues"].append(
+                        "Revision delta is weak: implementation appears materially unchanged from previous revision"
+                    )
+                    review_metrics["suggestions"].append(
+                        "Apply targeted code changes tied to latest failing evidence before re-submitting for review"
+                    )
+                else:
+                    revision_delta_score = 0.90
+
+            overall_score = (overall_score * 0.85) + (revision_delta_score * 0.15)
             decision = Decision.APPROVED if overall_score >= approval_threshold else Decision.REQUEST_CHANGES
             
             # Build detailed comments with metrics
@@ -1254,6 +1283,7 @@ def process_records(records: list[dict]) -> dict:
                 f"- Documentation: {review_metrics['documentation_score']:.0%}",
                 f"- Test Alignment: {review_metrics['test_alignment_score']:.0%}",
                 f"- Completeness: {completeness_score:.0%}",
+                f"- Revision Delta Quality: {revision_delta_score:.0%}",
                 f"- Overall Score: {overall_score:.0%} (need ≥{approval_threshold:.0%})",
                 f"- Pull Requests Reviewed: {len(revision_prs) if revision_prs else (1 if pr else 0)}",
             ]
@@ -1268,8 +1298,6 @@ def process_records(records: list[dict]) -> dict:
                 comments_parts.append("✓ Implementation quality meets the bar. Ready for testing and acceptance.")
             else:
                 comments_parts.append(f"✗ Score {overall_score:.0%} is below the {approval_threshold:.0%} approval threshold for revision {revision}.")
-                if revision >= 2:
-                    comments_parts.append("ℹ Stricter bar applied: revision 2+ requires 68% to ensure rework actually improved quality.")
             
             review = ReviewFeedback(
                 workflow_id=workflow_id,

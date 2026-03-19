@@ -131,6 +131,19 @@ class WorkflowEngine:
         escalations = [artifact for artifact in artifacts if isinstance(artifact, EscalationArtifact)]
         return escalations[-1] if escalations else None
 
+    def _latest_gate_feedback_decisions(self, workflow_id: str) -> dict[WorkflowStage, Decision]:
+        artifacts = self.artifact_store.list_by_workflow(workflow_id)
+        latest: dict[WorkflowStage, tuple[int, Decision]] = {}
+        for artifact in artifacts:
+            if not isinstance(artifact, ReviewFeedback):
+                continue
+            if not is_review_gate(artifact.stage):
+                continue
+            existing = latest.get(artifact.stage)
+            if existing is None or artifact.version >= existing[0]:
+                latest[artifact.stage] = (artifact.version, artifact.decision)
+        return {stage: payload[1] for stage, payload in latest.items()}
+
     def resume_from_escalation(
         self,
         workflow_id: str,
@@ -268,6 +281,29 @@ class WorkflowEngine:
 
         role = STAGE_TO_ROLE.get(stage)
         if role is None:
+            latest_gate_decisions = self._latest_gate_feedback_decisions(state.workflow_id)
+            unresolved_gates = [
+                gate.value
+                for gate, decision in latest_gate_decisions.items()
+                if decision == Decision.REQUEST_CHANGES
+            ]
+            if unresolved_gates:
+                self._record_escalation(
+                    state=state,
+                    stage=stage,
+                    reason=(
+                        "⛔ Completion blocked: latest gate decision still requests changes for "
+                        + ", ".join(sorted(unresolved_gates))
+                        + ". Workflow cannot enter DONE until all latest gate decisions are APPROVED."
+                    ),
+                    raised_by="workflow_engine",
+                    extra_payload={"unresolved_gates": unresolved_gates},
+                )
+                state.current_stage = WorkflowStage.DONE
+                state.status = WorkflowStatus.ESCALATED
+                self.state_store.save(state)
+                return state
+
             state.current_stage = WorkflowStage.DONE
             state.status = WorkflowStatus.COMPLETED
             self.state_store.save(state)

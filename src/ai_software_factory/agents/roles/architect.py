@@ -96,15 +96,24 @@ class ArchitectAgent(Agent):
                 issues = []
                 suggestions = []
                 alignment_failures = 0
+                score_components: dict[str, float] = {
+                    "artifact_completeness": 0.0,
+                    "api_stability_signal": 0.0,
+                    "risk_traceability": 0.0,
+                    "validation_signal": 0.0,
+                }
 
                 if impl is not None:
                     changed = set(f.lower() for f in (impl.files_changed or []))
                     written = set(f.lower() for f in (impl.written_source_files or []))
                     all_touched = changed | written
+                    if all_touched:
+                        score_components["artifact_completeness"] = 0.9
 
                     if not all_touched:
                         issues.append("ADR-01 violation: no source files were changed — implementation appears empty")
                         alignment_failures += 2
+                        score_components["artifact_completeness"] = 0.2
 
                     # API stability: PR description should acknowledge contract changes
                     pr_desc = (pr.description or "").lower()
@@ -112,6 +121,11 @@ class ArchitectAgent(Agent):
                         if len(impl.files_changed or []) > 3:
                             issues.append("ADR-02 concern: broad change set with no API stability notes in PR description")
                             alignment_failures += 1
+                            score_components["api_stability_signal"] = 0.4
+                        else:
+                            score_components["api_stability_signal"] = 0.65
+                    else:
+                        score_components["api_stability_signal"] = 0.9
 
                     # Arch spec risk mitigations: rejection/validation must be present
                     source_contents = []
@@ -134,16 +148,35 @@ class ArchitectAgent(Agent):
                     if combined and "reject" not in combined and "raise" not in combined and "error" not in combined:
                         issues.append("ADR-04 / RISK-03: no rejection/error paths detected in source files — validation logic may be missing")
                         alignment_failures += 1
+                        score_components["validation_signal"] = 0.35
+                    elif combined:
+                        score_components["validation_signal"] = 0.9
+                    else:
+                        score_components["validation_signal"] = 0.6
 
                 if arch_spec is not None and not arch_spec.risks:
                     suggestions.append("Architecture spec has no recorded risks; ensure identified risks are tracked")
+                    score_components["risk_traceability"] = 0.5
+                elif arch_spec is not None:
+                    score_components["risk_traceability"] = 0.9
+                else:
+                    score_components["risk_traceability"] = 0.4
 
-                if alignment_failures >= 2:
+                architecture_score = (
+                    score_components["artifact_completeness"] * 0.30
+                    + score_components["api_stability_signal"] * 0.25
+                    + score_components["risk_traceability"] * 0.20
+                    + score_components["validation_signal"] * 0.25
+                )
+                approval_threshold = 0.68
+
+                if alignment_failures >= 2 or architecture_score < approval_threshold:
                     decision = Decision.REQUEST_CHANGES
                     comments = (
-                        f"Architecture review: REQUEST_CHANGES. {alignment_failures} alignment gap(s) detected. "
-                        "Implementation does not adequately satisfy architectural constraints. "
-                        "See issues for details."
+                        "Architecture review: REQUEST_CHANGES. "
+                        f"Score {architecture_score:.0%} (need ≥{approval_threshold:.0%}), "
+                        f"alignment gaps={alignment_failures}. "
+                        "Implementation does not adequately satisfy architectural constraints."
                     )
                     suggestions.extend([
                         "Ensure all changed files are recorded in implementation artifact",
@@ -152,17 +185,31 @@ class ArchitectAgent(Agent):
                 elif alignment_failures == 1:
                     decision = Decision.APPROVED
                     comments = (
-                        "Architecture review passed with minor concerns. Implementation broadly aligns with "
+                        "Architecture review passed with minor concerns. "
+                        f"Score {architecture_score:.0%} (need ≥{approval_threshold:.0%}). "
+                        "Implementation broadly aligns with "
                         "the modular workflow, semantic targeting, and revision-safe patching strategy. "
                         "One alignment note recorded as a suggestion."
                     )
                 else:
                     decision = Decision.APPROVED
                     comments = (
-                        "Architecture review passed. Implementation fully aligns with the modular repo-aware workflow, "
+                        "Architecture review passed. "
+                        f"Score {architecture_score:.0%} (need ≥{approval_threshold:.0%}). "
+                        "Implementation fully aligns with the modular repo-aware workflow, "
                         "semantic targeting, deterministic rule enforcement, and revision-safe patching strategy."
                     )
                     issues = []
+
+                score_lines = [
+                    f"Architecture Scorecard:",
+                    f"- Artifact Completeness: {score_components['artifact_completeness']:.0%}",
+                    f"- API Stability Signal: {score_components['api_stability_signal']:.0%}",
+                    f"- Risk Traceability: {score_components['risk_traceability']:.0%}",
+                    f"- Validation Signal: {score_components['validation_signal']:.0%}",
+                    f"- Overall Architecture Score: {architecture_score:.0%} (need ≥{approval_threshold:.0%})",
+                ]
+                comments = comments + "\n" + "\n".join(score_lines)
 
             review = ReviewFeedback(
                 workflow_id=wf_id,

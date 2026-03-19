@@ -494,7 +494,7 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
 def render_revision_insights_tab(artifacts: list[dict], events: list[dict]) -> None:
     st.markdown("### 🔄 Revision Insights")
     st.markdown(
-        "This view explains where revision loops happened, why they were triggered, and what improved in the next revision."
+        "Advanced diagnostics: where revision loops happened, why they were triggered, and what changed in the next revision."
     )
 
     cycles = detect_revision_cycles(events)
@@ -1216,7 +1216,7 @@ def render_main(
     with tab_evidence:
         evidence_execution, evidence_artifacts, evidence_events = st.tabs([
             "Execution",
-            "Work Products",
+            "Artifacts",
             "Event Log",
         ])
 
@@ -1224,7 +1224,7 @@ def render_main(
             render_execution_tab(readme, artifacts, events)
 
         with evidence_artifacts:
-            st.markdown("### 📄 Work Products")
+            st.markdown("### 📄 Artifacts")
             by_stage = artifacts_by_stage(artifacts)
 
             def _render_artifact_entry(art: dict[str, Any], include_stage: bool = False) -> None:
@@ -1272,6 +1272,7 @@ def render_main(
 
         with evidence_events:
             st.markdown("### Event Stream")
+            st.caption("Raw chronological events with payload details used for debugging and audit (more granular than summaries in other tabs).")
             if not events:
                 st.info("No events recorded.")
                 return

@@ -906,6 +906,12 @@ def render_summary_tab(
                 resolved_issues.append(entry)
 
         st.markdown(f"**Open now:** {len(open_issues)} · **Resolved history:** {len(resolved_issues)}")
+        show_resolved_history = st.toggle(
+            "Show resolved history",
+            value=False,
+            key="show_resolved_history_toggle",
+            help="When off, only open issues are shown.",
+        )
 
         if open_issues:
             st.warning("Open issues are from the latest unresolved review decision(s).")
@@ -925,19 +931,20 @@ def render_summary_tab(
         else:
             st.success("No open issues. Remaining entries below are historical and already resolved.")
 
-        for entry in resolved_issues:
-            with st.expander(
-                f"✅ **RESOLVED · {entry['stage_label']}** requested changes · `{entry['artifact_type']}`",
-                expanded=False,
-            ):
-                if entry["issues"]:
-                    st.markdown("**Issues identified:**")
-                    for issue in entry["issues"]:
-                        st.markdown(f"- {issue}")
-                if entry["suggestions"]:
-                    st.markdown("**Suggested changes:**")
-                    for suggestion in entry["suggestions"]:
-                        st.markdown(f"- {suggestion}")
+        if show_resolved_history:
+            for entry in resolved_issues:
+                with st.expander(
+                    f"✅ **RESOLVED · {entry['stage_label']}** requested changes · `{entry['artifact_type']}`",
+                    expanded=False,
+                ):
+                    if entry["issues"]:
+                        st.markdown("**Issues identified:**")
+                        for issue in entry["issues"]:
+                            st.markdown(f"- {issue}")
+                    if entry["suggestions"]:
+                        st.markdown("**Suggested changes:**")
+                        for suggestion in entry["suggestions"]:
+                            st.markdown(f"- {suggestion}")
 
     # ── Final outcome ───────────────────────────────────────────────────────
     st.divider()

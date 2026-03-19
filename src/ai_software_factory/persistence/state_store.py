@@ -1,5 +1,20 @@
 from __future__ import annotations
+# Concrete implementations for testing
+class StateStore:
+    def __init__(self):
+        self._store = {}
+    def save(self, state):
+        self._store[getattr(state, 'workflow_id', None)] = state
+    def load(self, workflow_id):
+        return self._store.get(workflow_id)
 
+class ArtifactStore:
+    def __init__(self):
+        self._artifacts = {}
+    def save(self, artifact):
+        self._artifacts[getattr(artifact, 'artifact_id', None)] = artifact
+    def load(self, artifact_id):
+        return self._artifacts.get(artifact_id)
 import pickle
 import sqlite3
 from pathlib import Path

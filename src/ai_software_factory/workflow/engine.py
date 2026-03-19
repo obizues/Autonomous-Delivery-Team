@@ -254,6 +254,29 @@ class WorkflowEngine:
         state.artifact_ids.append(backlog_item.artifact_id)
         self.state_store.save(state)
 
+        # --- Repo Capability Profiler Integration ---
+        try:
+            from ai_software_factory.artifacts.repo_profiler import RepoCapabilityProfiler
+            repo_path = os.path.abspath(os.getcwd())
+            profiler = RepoCapabilityProfiler(repo_path=repo_path)
+            capability_report = profiler.profile()
+            import json
+            report_path = os.path.join("demo_output", "repo_capability_report.json")
+            with open(report_path, "w") as f:
+                json.dump(capability_report, f, indent=2)
+            # Optionally, emit event for artifact creation
+            self.event_bus.emit(
+                workflow_id=state.workflow_id,
+                event_type=EventType.ARTIFACT_CREATED,
+                stage=state.current_stage,
+                payload={
+                    "artifact_id": "repo_capability_report.json",
+                    "artifact_type": "RepoCapabilityReport",
+                },
+            )
+        except Exception as e:
+            print(f"[Profiler] Failed to generate capability report: {e}")
+
         self.event_bus.emit(
             workflow_id=state.workflow_id,
             event_type=EventType.WORKFLOW_STARTED,

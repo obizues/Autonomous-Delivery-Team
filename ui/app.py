@@ -736,6 +736,49 @@ def render_summary_tab(
         unsafe_allow_html=True,
     )
 
+    # ── Capability Report Card ─────────────────────────────────────────────
+    import os
+    capability_report_path = os.path.join("demo_output", "repo_capability_report.json")
+    if os.path.exists(capability_report_path):
+        with open(capability_report_path, "r") as f:
+            content = f.read().strip()
+            if content:
+                import json
+                import json
+                try:
+                    capability_report = json.loads(content)
+                except Exception:
+                    # Retry: regenerate report and reload
+                    from ai_software_factory.artifacts.repo_profiler import RepoCapabilityProfiler
+                    profiler = RepoCapabilityProfiler(repo_path='.')
+                    profiler.save_report(capability_report_path)
+                    with open(capability_report_path, "r") as f2:
+                        retry_content = f2.read().strip()
+                        try:
+                            capability_report = json.loads(retry_content)
+                        except Exception:
+                            st.warning("Capability report file is still corrupted after retry.")
+                            return
+                st.markdown("#### 🧭 Repo Capability Report")
+                with st.expander("Show Full Capability Report", expanded=False):
+                    st.json(capability_report)
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Languages:** " + ", ".join(capability_report.get("languages", [])))
+                    st.markdown("**Frameworks:** " + ", ".join(capability_report.get("frameworks", [])))
+                    st.markdown("**Main Files:** " + ", ".join(capability_report.get("main_files", [])))
+                    st.markdown("**Documentation:** " + ", ".join(capability_report.get("documentation", [])))
+                with col2:
+                    st.markdown("**Detected Capabilities:** " + ", ".join(capability_report.get("detected_capabilities", [])))
+                    st.markdown("**CI/CD:** " + capability_report.get("ci_cd", "None"))
+                    st.markdown("**License:** " + capability_report.get("license", "None"))
+                    st.markdown("**Artifact Outputs:** " + ", ".join(capability_report.get("artifact_outputs", [])))
+            else:
+                st.warning("Capability report file is empty.")
+    else:
+        st.warning("No capability report found. Run the profiler or workflow to generate one.")
+        st.info("No capability report found. Run the workflow to generate repo profiling.")
+
     _render_human_intervention_card(artifacts)
 
     # ── Team overview ───────────────────────────────────────────────────────

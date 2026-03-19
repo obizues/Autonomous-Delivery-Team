@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ai_software_factory.agents.base import Agent, AgentContext
@@ -256,35 +257,58 @@ def test_invalid_records_include_reason():
             baseline_failures=baseline_failures,
         )
 
+        force_escalation_demo = (os.getenv("ASF_FORCE_ESCALATION_DEMO", "").strip().lower() in {"1", "true", "yes"})
+        forced_escalation = force_escalation_demo and revision >= 2
+
+        effective_passed = outcome.passed
+        effective_failed_tests = list(outcome.failed_tests)
+        effective_new_failures = list(outcome.new_failures)
+        effective_regression_detected = outcome.regression_detected
+        effective_exit_code = outcome.exit_code
+
+        if forced_escalation:
+            effective_passed = False
+            effective_exit_code = 1
+            if baseline_failures:
+                effective_failed_tests = list(dict.fromkeys(baseline_failures))
+            elif effective_failed_tests:
+                effective_failed_tests = list(dict.fromkeys(effective_failed_tests))
+            else:
+                effective_failed_tests = ["forced_escalation_demo::synthetic_failure"]
+            effective_new_failures = []
+            effective_regression_detected = False
+
         self.event_bus.emit(
             workflow_id=wf_id,
             event_type=EventType.TEST_EXECUTION_COMPLETED,
             stage=state.current_stage,
             payload={
                 "revision": revision,
-                "passed": outcome.passed,
-                "exit_code": outcome.exit_code,
-                "failing_tests": outcome.failed_tests,
-                "new_failures": outcome.new_failures,
-                "regression_detected": outcome.regression_detected,
+                "passed": effective_passed,
+                "exit_code": effective_exit_code,
+                "failing_tests": effective_failed_tests,
+                "new_failures": effective_new_failures,
+                "regression_detected": effective_regression_detected,
                 "log_path": outcome.log_path,
+                "forced_escalation_demo": forced_escalation,
             },
         )
         self.event_bus.emit(
             workflow_id=wf_id,
-            event_type=EventType.TEST_PASSED if outcome.passed else EventType.TEST_FAILED,
+            event_type=EventType.TEST_PASSED if effective_passed else EventType.TEST_FAILED,
             stage=state.current_stage,
             payload={
                 "revision": revision,
-                "failing_tests": outcome.failed_tests,
+                "failing_tests": effective_failed_tests,
+                "forced_escalation_demo": forced_escalation,
             },
         )
 
-        decision = Decision.APPROVED if outcome.passed else Decision.REQUEST_CHANGES
+        decision = Decision.APPROVED if effective_passed else Decision.REQUEST_CHANGES
         previous_failed = len(baseline_failures)
-        failures_reduced = max(0, previous_failed - len(outcome.failed_tests))
-        stable_pass_streak = 1 if outcome.passed else 0
-        if previous_result is not None and outcome.passed and previous_result.passed:
+        failures_reduced = max(0, previous_failed - len(effective_failed_tests))
+        stable_pass_streak = 1 if effective_passed else 0
+        if previous_result is not None and effective_passed and previous_result.passed:
             stable_pass_streak = int(previous_result.stable_pass_streak) + 1
 
         test_result = TestResult(
@@ -293,14 +317,14 @@ def test_invalid_records_include_reason():
             created_by=self.role,
             status=ArtifactStatus.FINAL,
             version=revision,
-            passed=outcome.passed,
+            passed=effective_passed,
             total_cases=len(unit_tests) + len(integration_tests),
-            failed_cases=len(outcome.failed_tests),
+            failed_cases=len(effective_failed_tests),
             failures_reduced=failures_reduced,
-            no_new_failures=not outcome.regression_detected,
+            no_new_failures=not effective_regression_detected,
             stable_pass_streak=stable_pass_streak,
-            regression_detected=outcome.regression_detected,
-            new_failures=outcome.new_failures,
+            regression_detected=effective_regression_detected,
+            new_failures=effective_new_failures,
             targeted_tests=outcome.targeted_tests,
             targeted_command=outcome.targeted_command,
             targeted_exit_code=outcome.targeted_exit_code,
@@ -310,21 +334,22 @@ def test_invalid_records_include_reason():
             stdout=outcome.stdout,
             stderr=outcome.stderr,
             output=outcome.output,
-            failing_tests=outcome.failed_tests,
+            failing_tests=effective_failed_tests,
             generated_test_files=generated_test_files,
             unit_tests=unit_tests,
             integration_tests=integration_tests,
             edge_case_coverage=edge_case_coverage,
             coverage_estimate=(
                 "All sandbox pytest checks passed."
-                if outcome.passed
-                else f"Sandbox pytest failed with {len(outcome.failed_tests)} failing tests."
+                if effective_passed
+                else f"Sandbox pytest failed with {len(effective_failed_tests)} failing tests."
             ),
             details=[
-                f"pytest exit code: {outcome.exit_code}",
+                f"pytest exit code: {effective_exit_code}",
                 f"targeted pytest exit code: {outcome.targeted_exit_code if outcome.targeted_tests else 'N/A'}",
-                f"new failures: {', '.join(outcome.new_failures) if outcome.new_failures else 'none'}",
+                f"new failures: {', '.join(effective_new_failures) if effective_new_failures else 'none'}",
                 f"pytest log: {outcome.log_path}",
+                "Escalation demo mode forced test failure for revision >=2" if forced_escalation else "Tests executed in normal mode.",
                 "Tests executed inside sandbox repo copy.",
             ],
             pull_request_id=pr.artifact_id if pr else None,
@@ -340,20 +365,20 @@ def test_invalid_records_include_reason():
             decision=decision,
             comments=(
                 "Sandbox pytest passed. Change set satisfies acceptance criteria."
-                if outcome.passed
+                if effective_passed
                 else "Sandbox pytest failed. Revision required to address failing tests."
             ),
-            issues_identified=[] if outcome.passed else [f"{name} failed" for name in outcome.failed_tests] + (
-                [f"New regression: {name}" for name in outcome.new_failures]
-                if outcome.new_failures
+            issues_identified=[] if effective_passed else [f"{name} failed" for name in effective_failed_tests] + (
+                [f"New regression: {name}" for name in effective_new_failures]
+                if effective_new_failures
                 else []
             ),
-            suggested_changes=[] if outcome.passed else [
+            suggested_changes=[] if effective_passed else [
                 "Use failing pytest output for profile-targeted patching",
                 f"Address failing tests for repo profile '{repo_profile}'",
             ],
             pull_request_id=pr.artifact_id if pr else None,
         )
 
-        notes = "Test validation gate approved." if outcome.passed else "Test validation gate requested changes."
+        notes = "Test validation gate approved." if effective_passed else "Test validation gate requested changes."
         return StageResult(produced_artifacts=[test_result, review], decision=decision, notes=notes)

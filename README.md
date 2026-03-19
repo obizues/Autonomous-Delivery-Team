@@ -118,6 +118,45 @@ Three demo repos with scripted patch strategies:
 | **auth** | auth_service.py, token_store.py | Token handling and caching | Account lockout recovery |
 | **pipeline** | pipeline.py, validators.py | Data flow optimization | Regression detection |
 
+### 6. Optional Real Repository Integration
+
+The workflow can now clone a real Git repository into the sandbox instead of copying a seed repo.
+
+```bash
+# Optional real repository execution
+set ASF_REPO_URL=https://github.com/owner/repo.git
+set ASF_REPO_REF=main
+python -m ai_software_factory
+```
+
+Notes:
+- If `ASF_REPO_URL` is set, the sandbox is created from `git clone`
+- If `ASF_REPO_REF` is set, the cloned repo is checked out to that branch, tag, or commit
+- If no repo URL is set, the system keeps using the existing seeded demo repositories
+
+### 7. Human-in-the-Loop Escalation Resume
+
+When a workflow escalates, a human can provide guidance and resume execution from implementation.
+
+- Escalations are persisted as artifacts
+- Human guidance is stored as a `HumanIntervention` artifact
+- Resumed workflow continues with an incremented revision and emits resume events
+
+From the dashboard:
+- Open the `DONE` stage when status is `ESCALATED`
+- Enter guidance in `Human guidance`
+- Click `Resolve escalation and resume`
+
+CLI resume (optional):
+
+```bash
+set ASF_PERSISTENCE_BACKEND=sqlite
+set ASF_SQLITE_PATH=generated_workspace/asf_state_ui.db
+set ASF_RESUME_WORKFLOW_ID=<workflow_id>
+set ASF_HUMAN_RESPONSE=Proceed with safer fix path
+python -m ai_software_factory
+```
+
 ## 📊 Dashboard
 
 Run `streamlit run ui/app.py` to see:
@@ -240,13 +279,13 @@ DONE (all artifacts, final_status=COMPLETED)
 ## 🚦 Future Enhancements
 
 ### Short-term
-- [ ] Real repository integration: Clone actual repos, run real patch logic
 - [ ] Human-in-the-loop escalation handling: Accept feedback and resume workflow
 
 ### Medium-term
 - [ ] True parallel agent tracks: Each engineer independently progresses through pipeline
 - [ ] Extend LLM usage to additional agents (Architect/BA/ProductOwner)
 - [ ] Persistent storage hardening: indexes, replay tooling, and migration strategy
+- [ ] Real repository hardening: richer backlog injection, branch management, and safer patch isolation
 
 ### Long-term
 - [ ] Distributed execution: Multiple machines running engineer lanes

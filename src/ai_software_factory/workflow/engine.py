@@ -4,8 +4,15 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from ai_software_factory.agents.base import Agent, AgentContext
-from ai_software_factory.domain.enums import Decision, EventType, WorkflowStage, WorkflowStatus
-from ai_software_factory.domain.models import BacklogItem, PullRequest, ReviewFeedback, TestResult
+from ai_software_factory.domain.enums import ArtifactStatus, Decision, EscalationStatus, EventType, WorkflowStage, WorkflowStatus
+from ai_software_factory.domain.models import (
+    BacklogItem,
+    EscalationArtifact,
+    HumanIntervention,
+    PullRequest,
+    ReviewFeedback,
+    TestResult,
+)
 from ai_software_factory.events.bus import EventBus
 from ai_software_factory.governance.approvals import ApprovalService
 from ai_software_factory.governance.escalations import EscalationService
@@ -76,6 +83,147 @@ class WorkflowEngine:
             "stalled": stalled,
         }
 
+    def _record_escalation(
+        self,
+        state: WorkflowState,
+        stage: WorkflowStage,
+        reason: str,
+        raised_by: str,
+        extra_payload: dict[str, object] | None = None,
+    ) -> EscalationArtifact:
+        self.escalation_service.raise_escalation(
+            workflow_id=state.workflow_id,
+            reason=reason,
+            raised_by=raised_by,
+        )
+        escalation = EscalationArtifact(
+            workflow_id=state.workflow_id,
+            stage=stage,
+            created_by=raised_by,
+            version=state.revision,
+            status=ArtifactStatus.FINAL,
+            reason=reason,
+            raised_by=raised_by,
+        )
+        self.artifact_store.save(escalation)
+        state.artifact_ids.append(escalation.artifact_id)
+        state.escalation_ids.append(escalation.artifact_id)
+        self.event_bus.emit(
+            workflow_id=state.workflow_id,
+            event_type=EventType.ARTIFACT_CREATED,
+            stage=stage,
+            payload={"artifact_id": escalation.artifact_id, "artifact_type": escalation.__class__.__name__},
+        )
+        self.event_bus.emit(
+            workflow_id=state.workflow_id,
+            event_type=EventType.ESCALATION_RAISED,
+            stage=stage,
+            payload={
+                "escalation_id": escalation.artifact_id,
+                "reason": escalation.reason,
+                **(extra_payload or {}),
+            },
+        )
+        return escalation
+
+    def latest_escalation(self, workflow_id: str) -> EscalationArtifact | None:
+        artifacts = self.artifact_store.list_by_workflow(workflow_id)
+        escalations = [artifact for artifact in artifacts if isinstance(artifact, EscalationArtifact)]
+        return escalations[-1] if escalations else None
+
+    def resume_from_escalation(
+        self,
+        workflow_id: str,
+        human_response: str,
+        responder: str = "human_operator",
+        resume_stage: WorkflowStage = WorkflowStage.IMPLEMENTATION,
+    ) -> WorkflowState:
+        state = self.state_store.load(workflow_id)
+        if state.status != WorkflowStatus.ESCALATED:
+            raise ValueError(f"Workflow {workflow_id} is not escalated.")
+
+        escalation = self.latest_escalation(workflow_id)
+        if escalation is None:
+            raise ValueError(f"Workflow {workflow_id} has no escalation artifact to resolve.")
+
+        escalation.human_response = human_response
+        escalation.escalation_status = EscalationStatus.RESOLVED
+        escalation.resolved_at = datetime.now(timezone.utc)
+        escalation.resolution_summary = f"Human response recorded. Resume from {resume_stage.value}."
+        self.artifact_store.save(escalation)
+
+        intervention = HumanIntervention(
+            workflow_id=workflow_id,
+            stage=WorkflowStage.DONE,
+            created_by=responder,
+            version=state.revision + 1,
+            escalation_artifact_id=escalation.artifact_id,
+            responder=responder,
+            response=human_response,
+            desired_outcome="resume_workflow",
+            resume_stage=resume_stage,
+            resolution_notes=[
+                f"Escalation resolved by {responder}",
+                f"Workflow will resume from {resume_stage.value}",
+            ],
+        )
+        self.artifact_store.save(intervention)
+        state.artifact_ids.append(intervention.artifact_id)
+        self.event_bus.emit(
+            workflow_id=workflow_id,
+            event_type=EventType.ARTIFACT_CREATED,
+            stage=WorkflowStage.DONE,
+            payload={"artifact_id": intervention.artifact_id, "artifact_type": intervention.__class__.__name__},
+        )
+
+        previous_stage = state.current_stage
+        state.status = WorkflowStatus.IN_PROGRESS
+        state.revision += 1
+        state.current_stage = resume_stage
+        state.last_updated_at = datetime.now(timezone.utc)
+        self.state_store.save(state)
+
+        self.event_bus.emit(
+            workflow_id=workflow_id,
+            event_type=EventType.HUMAN_FEEDBACK_RECORDED,
+            stage=WorkflowStage.DONE,
+            payload={
+                "escalation_id": escalation.artifact_id,
+                "responder": responder,
+                "response": human_response,
+            },
+        )
+        self.event_bus.emit(
+            workflow_id=workflow_id,
+            event_type=EventType.ESCALATION_RESOLVED,
+            stage=WorkflowStage.DONE,
+            payload={
+                "escalation_id": escalation.artifact_id,
+                "resume_stage": resume_stage.value,
+            },
+        )
+        self.event_bus.emit(
+            workflow_id=workflow_id,
+            event_type=EventType.WORKFLOW_RESUMED,
+            stage=resume_stage,
+            payload={
+                "from_stage": previous_stage.value,
+                "to_stage": resume_stage.value,
+                "new_revision": state.revision,
+            },
+        )
+        self.event_bus.emit(
+            workflow_id=workflow_id,
+            event_type=EventType.REVISION_STARTED,
+            stage=resume_stage,
+            payload={
+                "old_revision": state.revision - 1,
+                "new_revision": state.revision,
+                "reason": f"Human intervention resume: {human_response}",
+            },
+        )
+        return state
+
     def start(self, backlog_item: BacklogItem) -> WorkflowState:
         state = WorkflowState(backlog_item_id=backlog_item.artifact_id)
         backlog_item.workflow_id = state.workflow_id
@@ -135,19 +283,13 @@ class WorkflowEngine:
             )
 
         if result.escalation_request is not None:
-            escalation = self.escalation_service.raise_escalation(
-                workflow_id=state.workflow_id,
+            escalation = self._record_escalation(
+                state=state,
+                stage=stage,
                 reason=result.escalation_request.reason,
                 raised_by=result.escalation_request.raised_by,
             )
-            state.escalation_ids.append(escalation.escalation_id)
             state.status = WorkflowStatus.ESCALATED
-            self.event_bus.emit(
-                workflow_id=state.workflow_id,
-                event_type=EventType.ESCALATION_RAISED,
-                stage=stage,
-                payload={"escalation_id": escalation.escalation_id, "reason": escalation.reason},
-            )
 
         if result.decision is not None:
             self.event_bus.emit(
@@ -179,8 +321,9 @@ class WorkflowEngine:
                 regression_detected = not bool(progress.get("no_new_failures", True))
 
                 if stalled and state.revision >= 2:
-                    escalation = self.escalation_service.raise_escalation(
-                        workflow_id=state.workflow_id,
+                    escalation = self._record_escalation(
+                        state=state,
+                        stage=stage,
                         reason=(
                             "⛔ Workflow stalled: No progress in test failure reduction across two revision attempts. "
                             "The team has iterated twice without fixing any failing tests. "
@@ -189,23 +332,14 @@ class WorkflowEngine:
                             f"no new failures={progress.get('no_new_failures', True)}"
                         ),
                         raised_by="workflow_engine",
+                        extra_payload={"progress": progress},
                     )
-                    state.escalation_ids.append(escalation.escalation_id)
                     state.status = WorkflowStatus.ESCALATED
                     state.current_stage = WorkflowStage.DONE
-                    self.event_bus.emit(
-                        workflow_id=state.workflow_id,
-                        event_type=EventType.ESCALATION_RAISED,
-                        stage=stage,
-                        payload={
-                            "escalation_id": escalation.escalation_id,
-                            "reason": escalation.reason,
-                            "progress": progress,
-                        },
-                    )
                 elif regression_detected and state.revision >= self.max_revisions - 1:
-                    escalation = self.escalation_service.raise_escalation(
-                        workflow_id=state.workflow_id,
+                    escalation = self._record_escalation(
+                        state=state,
+                        stage=stage,
                         reason=(
                             "⛔ Regression detected at revision limit: The latest iteration introduced NEW failing tests "
                             "and we're running out of revision attempts to fix it. "
@@ -214,20 +348,10 @@ class WorkflowEngine:
                             f"but new failures appeared"
                         ),
                         raised_by="workflow_engine",
+                        extra_payload={"progress": progress},
                     )
-                    state.escalation_ids.append(escalation.escalation_id)
                     state.status = WorkflowStatus.ESCALATED
                     state.current_stage = WorkflowStage.DONE
-                    self.event_bus.emit(
-                        workflow_id=state.workflow_id,
-                        event_type=EventType.ESCALATION_RAISED,
-                        stage=stage,
-                        payload={
-                            "escalation_id": escalation.escalation_id,
-                            "reason": escalation.reason,
-                            "progress": progress,
-                        },
-                    )
                 else:
                     state.revision += 1
                     state.current_stage = WorkflowStage.IMPLEMENTATION

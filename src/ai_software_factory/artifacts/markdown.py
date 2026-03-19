@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from ai_software_factory.domain.base import BaseArtifact
-from ai_software_factory.domain.enums import WorkflowStage
+from ai_software_factory.domain.enums import Decision, WorkflowStage
 from ai_software_factory.domain.models import (
     ArchitectureSpec,
     BacklogItem,
     CodeImplementation,
+    EscalationArtifact,
+    HumanIntervention,
     PullRequest,
     RequirementsSpec,
     ReviewFeedback,
@@ -157,6 +159,28 @@ def _render_test_report(a: TestResult) -> tuple[str, str]:
     return "test_report", md
 
 
+def _render_escalation(a: EscalationArtifact) -> tuple[str, str]:
+    md = _h(1, "Workflow Escalation")
+    md += f"\n> *Revision {a.version} · Stage: {a.stage.value} · Raised by: {a.raised_by}*\n"
+    md += _divider()
+    md += _section("Status", f"{a.escalation_status.value}\n")
+    md += _section("Reason", f"{a.reason or '_Not provided._'}\n")
+    md += _section("Human Response", f"{a.human_response or '_Awaiting human response._'}\n")
+    md += _section("Resolution Summary", f"{a.resolution_summary or '_Not resolved yet._'}\n")
+    return "workflow_escalation", md
+
+
+def _render_human_intervention(a: HumanIntervention) -> tuple[str, str]:
+    md = _h(1, "Human Intervention")
+    md += f"\n> *Revision {a.version} · Stage: {a.stage.value} · Responder: {a.responder}*\n"
+    md += _divider()
+    md += _section("Requested Outcome", f"{a.desired_outcome}\n")
+    md += _section("Resume Stage", f"{a.resume_stage.value}\n")
+    md += _section("Response", f"{a.response or '_No response provided._'}\n")
+    md += _section("Resolution Notes", _bullet_list(a.resolution_notes))
+    return "human_intervention", md
+
+
 def _render_acceptance_decision(a: ReviewFeedback) -> tuple[str, str]:
     verdict = f"**{a.decision.value}**"
     md = _h(1, "Acceptance Decision")
@@ -165,7 +189,8 @@ def _render_acceptance_decision(a: ReviewFeedback) -> tuple[str, str]:
     md += _section("Acceptance Criteria Review", _bullet_list(a.issues_identified) if a.issues_identified else "_All criteria met._\n")
     md += _section("Product Owner Decision", f"{verdict}\n")
     md += _section("Notes", f"{a.comments or '_None._'}\n")
-    md += _section("Suggested Changes", _bullet_list(a.suggested_changes) if a.suggested_changes else "_None._\n")
+    checklist_title = "Acceptance Checklist" if a.decision == Decision.APPROVED else "Suggested Changes"
+    md += _section(checklist_title, _bullet_list(a.suggested_changes) if a.suggested_changes else "_None._\n")
     return "acceptance_decision", md
 
 
@@ -208,5 +233,11 @@ def render_artifact_markdown(artifact: BaseArtifact) -> tuple[str, str] | None:
 
     if isinstance(artifact, TestResult):
         return _render_test_report(artifact)
+
+    if isinstance(artifact, EscalationArtifact):
+        return _render_escalation(artifact)
+
+    if isinstance(artifact, HumanIntervention):
+        return _render_human_intervention(artifact)
 
     return None

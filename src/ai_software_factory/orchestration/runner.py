@@ -22,7 +22,41 @@ from ai_software_factory.planning.repo_change_planner import RepoChangePlanner
 from ai_software_factory.workflow.engine import WorkflowEngine
 
 
-def build_demo_backlog(seed_repo_name: str | None = None) -> BacklogItem:
+def _generic_repo_backlog(repo_url: str) -> BacklogItem:
+    repo_name = repo_url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git") or "external repository"
+    return BacklogItem(
+        workflow_id="",
+        stage=WorkflowStage.BACKLOG_INTAKE,
+        created_by="product_owner",
+        status=ArtifactStatus.FINAL,
+        title=f"Stabilize and improve {repo_name}",
+        description=(
+            "Analyze the cloned repository, identify the most likely implementation hotspots from failing tests or backlog intent, "
+            "and produce a safe, reviewable change set."
+        ),
+        problem_statement=(
+            "A real repository has been provided instead of a demo seed repo. The delivery system should clone it into the sandbox, "
+            "inspect the codebase, and attempt targeted implementation changes."
+        ),
+        user_story=(
+            "As an operator, I want the workflow to run against a real Git repository so the autonomous delivery loop can move beyond demo repos."
+        ),
+        business_value=(
+            "Enables realistic end-to-end validation on actual repositories while preserving deterministic demo scenarios as fallback."
+        ),
+        acceptance_criteria=[
+            "repository is cloned into the sandbox workspace",
+            "planner scans real repository files and emits a change plan",
+            "implementation artifacts reference the cloned sandbox path",
+            "workflow remains backward compatible with seeded demo repos",
+        ],
+    )
+
+
+def build_demo_backlog(seed_repo_name: str | None = None, repo_url: str | None = None) -> BacklogItem:
+    if repo_url:
+        return _generic_repo_backlog(repo_url)
+
     selected_seed_repo = seed_repo_name or os.getenv("ASF_SEED_REPO", "fake_upload_service")
 
     if selected_seed_repo == "simple_auth_service":
@@ -117,11 +151,15 @@ def build_demo_backlog(seed_repo_name: str | None = None) -> BacklogItem:
 
 def create_engine(
     seed_repo_name: str | None = None,
+    repo_url: str | None = None,
+    repo_ref: str | None = None,
     persistence_backend: str | None = None,
     sqlite_path: str | None = None,
 ) -> WorkflowEngine:
     selected_backend = (persistence_backend or os.getenv("ASF_PERSISTENCE_BACKEND", "memory")).lower()
     selected_sqlite_path = sqlite_path or os.getenv("ASF_SQLITE_PATH", "generated_workspace/asf_state.db")
+    selected_repo_url = repo_url or os.getenv("ASF_REPO_URL")
+    selected_repo_ref = repo_ref or os.getenv("ASF_REPO_REF")
 
     if selected_backend in {"sqlite", "sql"}:
         state_store = SQLiteStateStore(selected_sqlite_path)
@@ -134,7 +172,11 @@ def create_engine(
     approval_service = ApprovalService()
     escalation_service = EscalationService()
     selected_seed_repo = seed_repo_name or os.getenv("ASF_SEED_REPO", "fake_upload_service")
-    repo_workspace = RepoWorkspaceManager(seed_repo_name=selected_seed_repo)
+    repo_workspace = RepoWorkspaceManager(
+        seed_repo_name=selected_seed_repo,
+        repo_url=selected_repo_url,
+        repo_ref=selected_repo_ref,
+    )
     patch_engine = FilePatchEngine()
     planner = RepoChangePlanner()
     test_runner = PytestRunner()
@@ -168,9 +210,13 @@ def create_engine(
     )
 
 
-def run_demo_workflow(seed_repo_name: str | None = None) -> dict[str, object]:
-    engine = create_engine(seed_repo_name=seed_repo_name)
-    backlog = build_demo_backlog(seed_repo_name)
+def run_demo_workflow(
+    seed_repo_name: str | None = None,
+    repo_url: str | None = None,
+    repo_ref: str | None = None,
+) -> dict[str, object]:
+    engine = create_engine(seed_repo_name=seed_repo_name, repo_url=repo_url, repo_ref=repo_ref)
+    backlog = build_demo_backlog(seed_repo_name, repo_url=repo_url)
 
     state = engine.start(backlog)
     final_state = engine.run_until_terminal(state.workflow_id)

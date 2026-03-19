@@ -62,6 +62,8 @@ ARTIFACT_TYPE_LABELS = {
     "RequirementsSpec":   "Requirements Spec",
     "ArchitectureSpec":   "Architecture Design",
     "CodeImplementation": "Implementation Plan",
+    "EscalationArtifact": "Workflow Escalation",
+    "HumanIntervention":  "Human Intervention",
     "PullRequest":        "Pull Request",
     "ReviewFeedback":     "Review Feedback",
     "TestResult":         "Test Report",
@@ -86,8 +88,13 @@ EVENT_ICONS = {
     "TEST_EXECUTION_COMPLETED": "📋",
     "TEST_PASSED": "✅",
     "TEST_FAILED": "❌",
+    "HUMAN_FEEDBACK_RECORDED": "🧑‍💼",
+    "ESCALATION_RESOLVED": "🟢",
+    "WORKFLOW_RESUMED": "🔁",
     "WORKFLOW_COMPLETED":  "🏁",
 }
+
+UI_SQLITE_PATH = "generated_workspace/asf_state_ui.db"
 
 # ── Page config ──────────────────────────────────────────────────────────────
 
@@ -269,6 +276,19 @@ def load_artifacts() -> list[dict[str, Any]]:
             "md": md_content,
         })
 
+    def artifact_sort_key(item: dict[str, Any]) -> tuple[int, int, str, str]:
+        stage = str(item.get("stage", "UNKNOWN"))
+        try:
+            stage_index = STAGE_ORDER.index(stage)
+        except ValueError:
+            stage_index = len(STAGE_ORDER)
+
+        version = int(item.get("version", 1) or 1)
+        created_at = str(item.get("meta", {}).get("created_at", ""))
+        uuid = str(item.get("uuid", ""))
+        return stage_index, version, created_at, uuid
+
+    artifacts.sort(key=artifact_sort_key)
     return artifacts
 
 
@@ -278,13 +298,21 @@ def load_events() -> list[dict[str, Any]]:
     if not path.exists():
         return []
     events = []
+    seen_event_ids: set[str] = set()
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line:
             try:
-                events.append(json.loads(line))
+                event = json.loads(line)
+                event_id = str(event.get("event_id", ""))
+                if event_id:
+                    if event_id in seen_event_ids:
+                        continue
+                    seen_event_ids.add(event_id)
+                events.append(event)
             except Exception:
                 pass
+    events.sort(key=lambda item: (str(item.get("timestamp", "")), str(item.get("event_id", ""))))
     return events
 
 
@@ -366,13 +394,24 @@ def latest_artifact(
     artifact_type: str,
     stage: str | None = None,
 ) -> dict | None:
-    for artifact in reversed(artifacts):
+    matches: list[dict] = []
+    for artifact in artifacts:
         if artifact.get("type") != artifact_type:
             continue
         if stage is not None and artifact.get("stage") != stage:
             continue
-        return artifact
-    return None
+        matches.append(artifact)
+
+    if not matches:
+        return None
+
+    def sort_key(artifact: dict) -> tuple[int, str, str]:
+        version = int(artifact.get("version", 1) or 1)
+        created_at = str(artifact.get("meta", {}).get("created_at", ""))
+        artifact_id = str(artifact.get("meta", {}).get("artifact_id", artifact.get("uuid", "")))
+        return version, created_at, artifact_id
+
+    return max(matches, key=sort_key)
 
 
 def first_artifact(
@@ -410,6 +449,32 @@ def latest_snapshot(snapshots: dict[str, list[dict]]) -> dict:
     return newest
 
 
+def effective_workflow_status(
+    readme: dict[str, str],
+    events: list[dict[str, Any]],
+    snapshots: dict[str, list[dict]],
+) -> str:
+    readme_status = str(readme.get("final_status", "") or "").upper()
+    latest = latest_snapshot(snapshots)
+    snapshot_status = str(latest.get("status", "") or "").upper()
+    final_stage = str(readme.get("final_stage", latest.get("current_stage", "")) or "").upper()
+
+    for candidate in (readme_status, snapshot_status):
+        if candidate in {"COMPLETED", "FAILED", "ESCALATED"}:
+            return candidate
+
+    if final_stage == "DONE":
+        if any(event.get("event_type") == "ESCALATION_RAISED" for event in events):
+            return "ESCALATED"
+        return "COMPLETED"
+
+    if readme_status:
+        return readme_status
+    if snapshot_status:
+        return snapshot_status
+    return "UNKNOWN"
+
+
 def detect_active_context(artifacts: list[dict], events: list[dict]) -> dict[str, str]:
     backlog = latest_artifact(artifacts, "BacklogItem", "BACKLOG_INTAKE")
     latest_scan = None
@@ -433,6 +498,8 @@ def detect_active_context(artifacts: list[dict], events: list[dict]) -> dict[str
             if note.startswith("Detected repo profile: "):
                 repo_profile = note.split(": ", 1)[1].strip()
             if note.startswith("Seed repo: ") and seed_repo_name == "unknown":
+                seed_repo_name = note.split(": ", 1)[1].strip()
+            if note.startswith("Repo source: ") and seed_repo_name == "unknown":
                 seed_repo_name = note.split(": ", 1)[1].strip()
 
     title = backlog.get("meta", {}).get("title", "Active backlog") if backlog else "Active backlog"
@@ -495,16 +562,28 @@ def team_overview(snapshots: dict[str, list[dict]]) -> list[dict[str, str | int]
     return rows
 
 
-def run_workflow_from_dashboard(seed_repo_name: str) -> tuple[bool, str]:
+def run_workflow_from_dashboard(
+    seed_repo_name: str,
+    repo_url: str | None = None,
+    repo_ref: str | None = None,
+) -> tuple[bool, str]:
     try:
+        env = {
+            **os.environ,
+            "PYTHONPATH": "src",
+            "ASF_SEED_REPO": seed_repo_name,
+            "ASF_PERSISTENCE_BACKEND": "sqlite",
+            "ASF_SQLITE_PATH": UI_SQLITE_PATH,
+        }
+        if repo_url:
+            env["ASF_REPO_URL"] = repo_url
+        if repo_ref:
+            env["ASF_REPO_REF"] = repo_ref
+
         result = subprocess.run(
             [sys.executable, "-m", "ai_software_factory"],
             cwd=BASE_DIR,
-            env={
-                **os.environ,
-                "PYTHONPATH": "src",
-                "ASF_SEED_REPO": seed_repo_name,
-            },
+            env=env,
             capture_output=True,
             text=True,
         )
@@ -515,6 +594,65 @@ def run_workflow_from_dashboard(seed_repo_name: str) -> tuple[bool, str]:
     if result.returncode != 0:
         return False, output[-4000:] if output else "Workflow failed with no output."
     return True, output[-4000:] if output else "Workflow completed successfully."
+
+
+def run_escalation_demo_from_dashboard() -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            [sys.executable, "scripts/demo_escalation.py"],
+            cwd=BASE_DIR,
+            env={
+                **os.environ,
+                "PYTHONPATH": "src",
+                "ASF_PERSISTENCE_BACKEND": "sqlite",
+                "ASF_SQLITE_PATH": UI_SQLITE_PATH,
+            },
+            capture_output=True,
+            text=True,
+        )
+    except Exception as exc:
+        return False, f"Failed to run escalation demo: {exc}"
+
+    output = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+    if result.returncode != 0:
+        return False, output[-4000:] if output else "Escalation demo failed with no output."
+    return True, output[-4000:] if output else "Escalation demo completed successfully."
+
+
+def run_resume_from_dashboard(workflow_id: str, human_response: str) -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "ai_software_factory"],
+            cwd=BASE_DIR,
+            env={
+                **os.environ,
+                "PYTHONPATH": "src",
+                "ASF_PERSISTENCE_BACKEND": "sqlite",
+                "ASF_SQLITE_PATH": UI_SQLITE_PATH,
+                "ASF_RESUME_WORKFLOW_ID": workflow_id,
+                "ASF_HUMAN_RESPONSE": human_response,
+            },
+            capture_output=True,
+            text=True,
+        )
+    except Exception as exc:
+        return False, f"Failed to resume workflow: {exc}"
+
+    output = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+    if result.returncode != 0:
+        return False, output[-4000:] if output else "Workflow resume failed with no output."
+    return True, output[-4000:] if output else "Workflow resumed successfully."
+
+
+def latest_escalation_reason(events: list[dict]) -> str | None:
+    for event in reversed(events):
+        if event.get("event_type") != "ESCALATION_RAISED":
+            continue
+        payload = event.get("payload", {})
+        reason = payload.get("reason")
+        if isinstance(reason, str) and reason.strip():
+            return reason.strip()
+    return None
 
 
 def planner_insights_by_revision(events: list[dict]) -> dict[int, list[dict]]:
@@ -748,7 +886,7 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
             <div style="color:{_tokens['text_muted']};font-size:0.78rem;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Active Scenario</div>
             <div style="font-size:1.05rem;font-weight:700;color:{_tokens['text_primary']};margin-bottom:6px">{active_context['scenario_title']}</div>
             <div style="display:flex;gap:20px;flex-wrap:wrap;color:{_tokens['text_secondary']};font-size:0.88rem">
-                <span>🧪 Seed repo: <strong>{active_context['seed_repo_name']}</strong></span>
+                <span>🧪 Repo source: <strong>{active_context['seed_repo_name']}</strong></span>
                 <span>🧭 Repo profile: <strong>{active_context['repo_profile']}</strong></span>
             </div>
         </div>
@@ -943,6 +1081,13 @@ def extract_key_decisions(artifacts: list[dict], events: list[dict]) -> list[dic
                 "notes": meta.get("notes", ""),
                 "revision": art["version"],
             })
+    gate_order_index = {
+        "Architecture Review": 0,
+        "Peer Code Review": 1,
+        "Test Validation": 2,
+        "Product Acceptance": 3,
+    }
+    result.sort(key=lambda item: (gate_order_index.get(str(item.get("gate", "")), 999), int(item.get("revision", 0) or 0)))
     return result
 
 
@@ -953,46 +1098,76 @@ def extract_key_issues(artifacts: list[dict], events: list[dict]) -> list[dict]:
     """
     result = []
     by_stage = artifacts_by_stage(artifacts)
-    stage_cursor: dict[str, int] = defaultdict(int)
 
-    for evt in events:
-        if evt.get("event_type") != "DECISION_MADE":
-            continue
-        p = evt.get("payload", {})
-        if p.get("decision") != "REQUEST_CHANGES":
-            continue
-        stage = evt.get("stage", "") or p.get("stage", "")
+    gate_sequence = [
+        "ARCHITECTURE_REVIEW_GATE",
+        "PEER_CODE_REVIEW_GATE",
+        "TEST_VALIDATION_GATE",
+        "PRODUCT_ACCEPTANCE_GATE",
+    ]
+
+    for stage in gate_sequence:
         _, label, _ = STAGE_META.get(stage, ("•", stage, ""))
-
-        gate_arts = [
-            art for art in by_stage.get(stage, [])
-            if art.get("type") in {"ReviewFeedback", "TestResult"}
+        review_feedback = [
+            art
+            for art in by_stage.get(stage, [])
+            if art.get("type") == "ReviewFeedback"
         ]
-        if not gate_arts:
-            continue
 
-        index = stage_cursor[stage]
-        stage_cursor[stage] += 1
-        art = gate_arts[index] if index < len(gate_arts) else gate_arts[-1]
+        review_feedback.sort(
+            key=lambda art: (
+                int(art.get("version", 1) or 1),
+                str(art.get("meta", {}).get("created_at", "")),
+                str(art.get("uuid", "")),
+            )
+        )
 
-        meta = art["meta"]
-        issues = meta.get("issues_identified", [])
-        suggestions = meta.get("suggested_changes", [])
+        for feedback in review_feedback:
+            meta = feedback.get("meta", {})
+            if meta.get("decision") != "REQUEST_CHANGES":
+                continue
 
-        if art["type"] == "TestResult":
-            failing = meta.get("failing_tests", [])
-            if failing:
-                issues = [f"Failing test: {t}" for t in failing]
-            suggestions = meta.get("suggested_changes", suggestions)
+            revision = int(feedback.get("version", 1) or 1)
+            issues = list(meta.get("issues_identified", []))
+            suggestions = list(meta.get("suggested_changes", []))
+            artifact_type_label = ARTIFACT_TYPE_LABELS.get("ReviewFeedback", "ReviewFeedback")
 
-        if issues or suggestions:
-            result.append({
-                "stage_label": label,
-                "gate": stage,
-                "artifact_type": ARTIFACT_TYPE_LABELS.get(art["type"], art["type"]),
-                "issues": issues,
-                "suggestions": suggestions,
-            })
+            matching_test = next(
+                (
+                    art
+                    for art in by_stage.get(stage, [])
+                    if art.get("type") == "TestResult"
+                    and int(art.get("version", 1) or 1) == revision
+                ),
+                None,
+            )
+            if matching_test:
+                test_meta = matching_test.get("meta", {})
+                failing = test_meta.get("failing_tests", [])
+                if failing:
+                    issues = [f"Failing test: {name}" for name in failing]
+                    artifact_type_label = ARTIFACT_TYPE_LABELS.get("TestResult", "TestResult")
+                test_suggestions = test_meta.get("suggested_changes", [])
+                if test_suggestions:
+                    suggestions = list(test_suggestions)
+
+            if issues or suggestions:
+                result.append(
+                    {
+                        "stage_label": label,
+                        "gate": stage,
+                        "artifact_type": artifact_type_label,
+                        "issues": issues,
+                        "suggestions": suggestions,
+                        "revision": revision,
+                    }
+                )
+    result.sort(
+        key=lambda item: (
+            STAGE_ORDER.index(item["gate"]) if item["gate"] in STAGE_ORDER else 999,
+            int(item.get("revision", 0) or 0),
+        )
+    )
     return result
 
 
@@ -1136,6 +1311,53 @@ def infer_next_revision_changes(cycle: dict, artifacts: list[dict]) -> dict:
     }
 
 
+def artifact_highlights(artifact: dict[str, Any]) -> list[str]:
+    meta = artifact.get("meta", {})
+    lines: list[str] = []
+
+    decision = meta.get("decision")
+    if isinstance(decision, str) and decision:
+        lines.append(f"Decision: {decision}")
+
+    for key in ("title", "summary", "comments"):
+        value = meta.get(key)
+        if isinstance(value, str) and value.strip():
+            lines.append(value.strip())
+            break
+
+    if artifact.get("type") == "TestResult":
+        passed = meta.get("passed")
+        failed_cases = meta.get("failed_cases")
+        total_cases = meta.get("total_cases")
+        if isinstance(passed, bool):
+            status = "PASSED" if passed else "FAILED"
+            lines.append(f"pytest status: {status}")
+        if isinstance(failed_cases, int) and isinstance(total_cases, int):
+            lines.append(f"Test cases: {total_cases} total, {failed_cases} failing")
+        failing_tests = meta.get("failing_tests", [])
+        if isinstance(failing_tests, list) and failing_tests:
+            lines.append(f"Failing tests: {', '.join(str(item) for item in failing_tests[:3])}")
+
+    files_changed = meta.get("files_changed", [])
+    if isinstance(files_changed, list) and files_changed:
+        lines.append(f"Files changed: {', '.join(str(item) for item in files_changed[:3])}")
+
+    suggested_changes = meta.get("suggested_changes", [])
+    if isinstance(suggested_changes, list) and suggested_changes:
+        is_acceptance_approved = (
+            str(artifact.get("stage", "")) == "PRODUCT_ACCEPTANCE_GATE"
+            and str(meta.get("decision", "")) == "APPROVED"
+        )
+        label = "Acceptance checklist" if is_acceptance_approved else "Suggested changes"
+        lines.append(f"{label}: {str(suggested_changes[0])}")
+
+    created_at = meta.get("created_at")
+    if isinstance(created_at, str) and created_at:
+        lines.append(f"Created at: {created_at}")
+
+    return lines[:5]
+
+
 def render_revision_insights_tab(artifacts: list[dict], events: list[dict]) -> None:
     st.markdown("### 🔄 Revision Insights")
     st.markdown(
@@ -1263,7 +1485,7 @@ def render_summary_tab(
     active_context = detect_active_context(artifacts, events)
     title = get_backlog_title(artifacts)
     problem = get_backlog_problem(artifacts)
-    status = readme.get("final_status", "—")
+    status = effective_workflow_status(readme, events, snapshots)
     wf_id = readme.get("workflow_id", "—")
     revision_count = readme.get("revision_count", "—")
     n_artifacts = len([a for a in artifacts if a["md"]])
@@ -1292,7 +1514,7 @@ def render_summary_tab(
             <div style="font-size:1.45rem;font-weight:700;color:{_tokens['text_primary']};margin-bottom:6px">{title}</div>
             <div style="color:{_tokens['text_muted']};font-size:0.9rem;margin-bottom:14px">{problem or 'No problem statement recorded.'}</div>
             <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;color:{_tokens['text_secondary']};font-size:0.86rem">
-                <span>🧪 Seed repo: <strong>{active_context['seed_repo_name']}</strong></span>
+                <span>🧪 Repo source: <strong>{active_context['seed_repo_name']}</strong></span>
                 <span>🧭 Repo profile: <strong>{active_context['repo_profile']}</strong></span>
                 <span>📦 Sandbox: <strong>{active_context['sandbox_path']}</strong></span>
             </div>
@@ -1312,13 +1534,13 @@ def render_summary_tab(
     )
 
     # ── Team overview ───────────────────────────────────────────────────────
-    st.markdown("#### 👥 Autonomous Delivery Team")
-    team_rows = team_overview(snapshots)
-    cols = st.columns(5)
-    for col, row in zip(cols, team_rows):
-        col.markdown(f"**{row['role']}**")
-        col.markdown(f"<small style='color:#8b949e'>{row['status']}</small>", unsafe_allow_html=True)
-        col.caption(f"Last: {row['last_stage']}")
+    with st.expander("👥 Autonomous Delivery Team", expanded=False):
+        team_rows = team_overview(snapshots)
+        cols = st.columns(5)
+        for col, row in zip(cols, team_rows):
+            col.markdown(f"**{row['role']}**")
+            col.markdown(f"<small style='color:#8b949e'>{row['status']}</small>", unsafe_allow_html=True)
+            col.caption(f"Last: {row['last_stage']}")
 
     # ── Parallel engineer lanes visualization ─────────────────────────────
     engineer_lanes = []
@@ -1332,27 +1554,24 @@ def render_summary_tab(
             break
 
     if engineer_lanes:
-        st.markdown("")
-        st.markdown("#### 🔀 Parallel Engineer Lanes")
-        st.markdown(f"**{len(engineer_lanes)} engineers working in parallel** on decomposed tasks:")
-        cols = st.columns(len(engineer_lanes))
-        for col, lane_summary in zip(cols, engineer_lanes):
-            # Parse lane_id and stats from the summary string
-            # Format: "engineer_1 files=['src/file1.py'] applied=2 failed=0"
-            lane_parts = lane_summary.split()
-            lane_id = lane_parts[0] if lane_parts else "unknown"
-            applied = 0
-            failed = 0
-            for part in lane_parts:
-                if part.startswith("applied="):
-                    applied = int(part.split("=")[1])
-                elif part.startswith("failed="):
-                    failed = int(part.split("=")[1])
-            
-            with col:
-                status_color = "#4ade80" if applied > 0 and failed == 0 else "#f87171" if failed > 0 else "#60a5fa"
-                status_text = f"✅ {applied}" if applied > 0 and failed == 0 else f"❌ {applied}/{failed}" if failed > 0 else "⏳"
-                st.markdown(f"<div style='background:#f0f9ff;border-left:4px solid {status_color};padding:8px;border-radius:6px'><strong>{lane_id}</strong><br><small>{lane_summary.split(lane_id)[1].strip()}</small><div style='margin-top:4px;color:{status_color};font-weight:700'>{status_text}</div></div>", unsafe_allow_html=True)
+        with st.expander("🔀 Parallel Engineer Lanes", expanded=False):
+            st.markdown(f"**{len(engineer_lanes)} engineers working in parallel** on decomposed tasks:")
+            cols = st.columns(len(engineer_lanes))
+            for col, lane_summary in zip(cols, engineer_lanes):
+                lane_parts = lane_summary.split()
+                lane_id = lane_parts[0] if lane_parts else "unknown"
+                applied = 0
+                failed = 0
+                for part in lane_parts:
+                    if part.startswith("applied="):
+                        applied = int(part.split("=")[1])
+                    elif part.startswith("failed="):
+                        failed = int(part.split("=")[1])
+
+                with col:
+                    status_color = "#4ade80" if applied > 0 and failed == 0 else "#f87171" if failed > 0 else "#60a5fa"
+                    status_text = f"✅ {applied}" if applied > 0 and failed == 0 else f"❌ {applied}/{failed}" if failed > 0 else "⏳"
+                    st.markdown(f"<div style='background:#f0f9ff;border-left:4px solid {status_color};padding:8px;border-radius:6px'><strong>{lane_id}</strong><br><small>{lane_summary.split(lane_id)[1].strip()}</small><div style='margin-top:4px;color:{status_color};font-weight:700'>{status_text}</div></div>", unsafe_allow_html=True)
 
     with st.expander("Show detailed stage timeline", expanded=False):
         timeline = build_stage_timeline(artifacts, events, snapshots)
@@ -1371,7 +1590,6 @@ def render_summary_tab(
             if isinstance(lane_values, list) and lane_values and isinstance(revision, int):
                 if revision not in lanes_by_revision:
                     lanes_by_revision[revision] = lane_values
-                break
 
         header_cols = st.columns([3, 2, 4, 2])
         for col, hdr in zip(header_cols, ["Stage", "Agent", "Artifacts Produced", "Decision"]):
@@ -1420,7 +1638,7 @@ def render_summary_tab(
             rev_label = f" · Rev {d['revision']}" if d["revision"] else ""
             with st.expander(
                 f"✔ **{d['gate']}**{rev_label} — reviewed by `{d['reviewer']}`",
-                expanded=True,
+                expanded=False,
             ):
                 if d["summary"]:
                     st.markdown(d["summary"])
@@ -1440,7 +1658,7 @@ def render_summary_tab(
         for entry in issues_list:
             with st.expander(
                 f"⚠ **{entry['stage_label']}** requested changes · `{entry['artifact_type']}`",
-                expanded=True,
+                expanded=False,
             ):
                 if entry["issues"]:
                     st.markdown("**Issues identified:**")
@@ -1461,10 +1679,27 @@ def render_summary_tab(
     ]
     if acceptance_arts:
         final_art = acceptance_arts[-1]
-        if final_art["md"]:
-            st.markdown(final_art["md"])
+        meta = final_art.get("meta", {})
+        decision = str(meta.get("decision", "")).upper()
+        reviewer = meta.get("reviewer") or final_art.get("created_by", "—")
+        version = final_art.get("version", "—")
+        notes = meta.get("notes") or meta.get("comments") or meta.get("summary", "")
+        checklist = meta.get("suggested_changes", [])
+
+        if decision == "APPROVED":
+            st.success(f"**APPROVED** — Revision {version} · Reviewer: {reviewer}", icon="✅")
+        elif decision == "REQUEST_CHANGES":
+            st.error(f"**CHANGES REQUESTED** — Revision {version} · Reviewer: {reviewer}", icon="🔴")
         else:
-            st.markdown(final_art["meta"].get("summary", "Accepted."))
+            st.info(f"Decision: {decision or 'Unknown'} · Revision {version} · Reviewer: {reviewer}")
+
+        if notes:
+            st.caption(notes)
+
+        if checklist and decision == "APPROVED":
+            with st.expander(f"Acceptance checklist ({len(checklist)} criteria)", expanded=False):
+                for c in checklist:
+                    st.markdown(f"- {c}")
     elif status == "COMPLETED":
         st.success("Workflow completed successfully. Feature accepted by Product Owner.", icon="🎉")
     else:
@@ -1490,7 +1725,7 @@ def render_sidebar(
 
         # Workflow metadata
         wf_id = readme.get("workflow_id", "—")
-        status = readme.get("final_status", "—")
+        status = effective_workflow_status(readme, events, snapshots)
         revision = readme.get("revision_count", "—")
 
         st.markdown(f"**Workflow ID**")
@@ -1500,7 +1735,54 @@ def render_sidebar(
         col1.metric("Status", status)
         col2.metric("Revisions", revision)
 
-        st.markdown(f"**Seed Repo**  ")
+        if status == "ESCALATED":
+            st.divider()
+            st.markdown("**⚠ Action Required: Escalation**")
+            escalation_reason = latest_escalation_reason(events)
+            if escalation_reason:
+                st.caption(escalation_reason)
+
+            response_templates = {
+                "Select a response template": "",
+                "Retry with safer fix strategy": "Resume from implementation. Prefer minimal safe changes, keep public behavior stable, and prioritize fixing currently failing tests.",
+                "Focus only on failing tests": "Resume from implementation and only change code paths linked to current failing tests; avoid unrelated refactors.",
+                "Stabilize then optimize later": "Resume from implementation with a stabilization-first plan. Defer non-critical improvements until tests are green.",
+            }
+            template_choice = st.selectbox(
+                "Response template",
+                options=list(response_templates.keys()),
+                index=0,
+                key="sidebar_escalation_template",
+            )
+            default_response = response_templates.get(template_choice, "")
+            human_response_sidebar = st.text_area(
+                "Human guidance",
+                value=default_response,
+                key="sidebar_human_escalation_response",
+                help="Explain how the team should proceed before resuming the workflow.",
+            )
+            if st.button("▶ Resolve escalation and resume", use_container_width=True, key="sidebar_resume_escalation"):
+                if not wf_id or wf_id == "—":
+                    st.error("Workflow ID missing; cannot resume this escalation.")
+                elif not human_response_sidebar.strip():
+                    st.error("Enter guidance before resuming the workflow.")
+                else:
+                    with st.spinner("Recording guidance and resuming workflow..."):
+                        success, output = run_resume_from_dashboard(wf_id, human_response_sidebar.strip())
+                    if success:
+                        st.success("Workflow resumed.")
+                        st.code(output[-1500:] if output else "Resumed", language="text")
+                        load_readme.clear()
+                        load_artifacts.clear()
+                        load_events.clear()
+                        load_snapshots.clear()
+                        st.rerun()
+                    else:
+                        st.error("Workflow resume failed.")
+                        if output:
+                            st.code(output[-3000:], language="text")
+
+        st.markdown(f"**Repo Source**  ")
         st.markdown(f"<small style='color:{_tokens['text_secondary']}'>{active_context['seed_repo_name']}</small>", unsafe_allow_html=True)
         st.markdown(f"**Scenario**  ")
         st.markdown(f"<small style='color:{_tokens['text_secondary']}'>{active_context['scenario_title']}</small>", unsafe_allow_html=True)
@@ -1513,12 +1795,29 @@ def render_sidebar(
             index=0,
             key="seed_repo_selector",
         )
+        repo_url = st.text_input(
+            "Git repo URL (optional)",
+            value="",
+            key="repo_url_input",
+            help="If provided, the workflow clones this repository into the sandbox instead of using a seed repo.",
+        )
+        repo_ref = st.text_input(
+            "Git ref (optional)",
+            value="",
+            key="repo_ref_input",
+            help="Optional branch, tag, or commit to checkout after clone.",
+        )
         if st.button("▶ Run Workflow", use_container_width=True):
-            with st.spinner(f"Running workflow for {selected_seed_repo}..."):
-                success, output = run_workflow_from_dashboard(selected_seed_repo)
+            target_label = repo_url.strip() or selected_seed_repo
+            with st.spinner(f"Running workflow for {target_label}..."):
+                success, output = run_workflow_from_dashboard(
+                    selected_seed_repo,
+                    repo_url=repo_url.strip() or None,
+                    repo_ref=repo_ref.strip() or None,
+                )
 
             if success:
-                st.success(f"Workflow completed for {selected_seed_repo}.")
+                st.success(f"Workflow completed for {target_label}.")
                 st.code(output[-1500:] if output else "Completed", language="text")
                 load_readme.clear()
                 load_artifacts.clear()
@@ -1526,7 +1825,24 @@ def render_sidebar(
                 load_snapshots.clear()
                 st.rerun()
             else:
-                st.error(f"Workflow failed for {selected_seed_repo}.")
+                st.error(f"Workflow failed for {target_label}.")
+                if output:
+                    st.code(output[-3000:], language="text")
+
+        if st.button("⚠ Run Escalation Demo", use_container_width=True):
+            with st.spinner("Running escalation demo scenario..."):
+                success, output = run_escalation_demo_from_dashboard()
+
+            if success:
+                st.success("Escalation demo completed.")
+                st.code(output[-1500:] if output else "Completed", language="text")
+                load_readme.clear()
+                load_artifacts.clear()
+                load_events.clear()
+                load_snapshots.clear()
+                st.rerun()
+            else:
+                st.error("Escalation demo failed.")
                 if output:
                     st.code(output[-3000:], language="text")
 
@@ -1590,6 +1906,12 @@ def render_sidebar(
             if default_index != max(0, len(labels) - 1):
                 break
 
+        if status == "ESCALATED":
+            for index, key in enumerate(keys):
+                if key == "DONE":
+                    default_index = index
+                    break
+
         selected_label = st.selectbox(
             "Stage",
             options=labels,
@@ -1620,141 +1942,166 @@ def render_main(
         st.markdown(f"> {problem}")
     st.divider()
 
-    # Tabs: Summary | Graph | Revision Insights | Execution | Work Products | Events
-    tab_summary, tab_graph, tab_revision, tab_execution, tab_artifacts, tab_events = st.tabs([
-        "📊 Workflow Summary",
-        "🧭 Workflow Graph",
-        "🔄 Revision Insights",
-        "⚙️ Execution",
-        "📄 Work Products",
-        "📡 Event Log",
+    # Top-level IA: Overview | Process | Evidence
+    tab_overview, tab_process, tab_evidence = st.tabs([
+        "📊 Overview",
+        "🧭 Process",
+        "📚 Evidence",
     ])
 
-    # ── Summary tab ──
-    with tab_summary:
+    with tab_overview:
         render_summary_tab(readme, artifacts, events, snapshots)
 
-    # ── Workflow Graph tab ──
-    with tab_graph:
-        render_workflow_graph_tab(readme, events, snapshots)
+    with tab_process:
+        process_graph, process_revision = st.tabs(["Workflow Graph", "Revision Insights"])
+        with process_graph:
+            render_workflow_graph_tab(readme, events, snapshots)
+        with process_revision:
+            render_revision_insights_tab(artifacts, events)
 
-    # ── Revision Insights tab ──
-    with tab_revision:
-        render_revision_insights_tab(artifacts, events)
+    with tab_evidence:
+        evidence_execution, evidence_artifacts, evidence_events = st.tabs([
+            "Execution",
+            "Work Products",
+            "Event Log",
+        ])
 
-    # ── Execution tab ──
-    with tab_execution:
-        render_execution_tab(readme, artifacts, events)
+        with evidence_execution:
+            render_execution_tab(readme, artifacts, events)
 
-    # ── Artifacts tab ──
-    with tab_artifacts:
-        # Decode selected_key (e.g. "IMPLEMENTATION__rev1" or "ARCHITECTURE_DESIGN")
-        if "__rev" in selected_key:
-            stage_key, rev_str = selected_key.rsplit("__rev", 1)
-            target_rev = int(rev_str)
-        else:
-            stage_key = selected_key
-            target_rev = None
-
-        icon, stage_label, role = STAGE_META.get(stage_key, ("•", stage_key, ""))
-
-        st.markdown(f"### {icon} {stage_label}")
-        if role and role != "—":
-            st.markdown(
-                f'<div class="artifact-tag">Agent: {role}</div>',
-                unsafe_allow_html=True,
+        with evidence_artifacts:
+            st.markdown("### 📄 Work Products")
+            scope = st.radio(
+                "Scope",
+                options=["Global (all stages)", "Selected stage"],
+                horizontal=True,
+                index=0,
+                key="work_products_scope",
             )
 
-        # Get artifacts for this stage
-        by_stage = artifacts_by_stage(artifacts)
-        stage_arts = by_stage.get(stage_key, [])
+            by_stage = artifacts_by_stage(artifacts)
 
-        # Filter by revision if needed
-        if target_rev is not None:
-            stage_arts = [a for a in stage_arts if a["version"] == target_rev]
-
-        if stage_key == "DONE":
-            final_status = readme.get("final_status", "UNKNOWN")
-            if final_status == "COMPLETED":
-                st.success("✅ Workflow completed successfully. All gates approved.", icon="🎉")
-            elif final_status == "FAILED":
-                st.error("❌ Workflow ended in FAILED status.")
-            elif final_status == "ESCALATED":
-                st.warning("⚠️ Workflow has been escalated and requires your review and decision.")
-                # Try to find the escalation reason from the event log
-                escalation_reason = None
-                for evt in events:
-                    if evt.get("event_type") == "ESCALATION_RAISED" and evt.get("payload", {}).get("reason"):
-                        escalation_reason = evt["payload"]["reason"]
-                        break
-                if escalation_reason:
-                    st.info(escalation_reason)
-            else:
-                st.info(f"Workflow terminal status: {final_status}")
-        elif not stage_arts:
-            st.info("No artifacts recorded for this stage.")
-        else:
-            for art in sorted(stage_arts, key=lambda x: x["version"]):
+            def _render_artifact_entry(art: dict[str, Any], include_stage: bool = False) -> None:
                 art_label = ARTIFACT_TYPE_LABELS.get(art["type"], art["type"])
-                rev_label = f" · Rev {art['version']}" if target_rev is None else ""
+                rev_label = f"Rev {art['version']}"
+                stage_label_text = ""
+                if include_stage:
+                    _, stage_name, _ = STAGE_META.get(art["stage"], ("", art["stage"], ""))
+                    stage_label_text = f" · {stage_name}"
+
                 with st.expander(
-                    f"**{art_label}**{rev_label}  —  created by `{art['created_by']}`",
-                    expanded=True,
+                    f"**{art_label}** · {rev_label}{stage_label_text} — created by `{art['created_by']}`",
+                    expanded=False,
                 ):
+                    highlights = artifact_highlights(art)
+                    if highlights:
+                        st.markdown("**Highlights**")
+                        for line in highlights:
+                            st.markdown(f"- {line}")
+                        st.divider()
                     if art["md"]:
                         st.markdown(art["md"])
                     else:
                         st.json(art["meta"])
 
-    # ── Events tab ──
-    with tab_events:
-        st.markdown("### Event Stream")
-        if not events:
-            st.info("No events recorded.")
-            return
+            if scope == "Global (all stages)":
+                stages_with_artifacts = [stage for stage in STAGE_ORDER if by_stage.get(stage)]
+                st.caption(f"Showing {sum(len(by_stage[s]) for s in stages_with_artifacts)} artifacts across {len(stages_with_artifacts)} stages.")
 
-        # Filters
-        col_filter, col_search = st.columns([3, 2])
-        unique_types = sorted({e.get("event_type", "") for e in events})
-        selected_types = col_filter.multiselect(
-            "Filter by event type",
-            options=unique_types,
-            default=unique_types,
-        )
-        search_term = col_search.text_input("Search payload", "")
+                for stage in stages_with_artifacts:
+                    icon, stage_label, role = STAGE_META.get(stage, ("•", stage, ""))
+                    stage_arts = sorted(
+                        by_stage.get(stage, []),
+                        key=lambda x: (int(x["version"]), str(x["meta"].get("created_at", ""))),
+                    )
+                    with st.expander(f"{icon} {stage_label} · {len(stage_arts)} artifact(s)", expanded=False):
+                        if role and role != "—":
+                            st.markdown(f"<div class='artifact-tag'>Agent: {role}</div>", unsafe_allow_html=True)
+                        for art in stage_arts:
+                            _render_artifact_entry(art)
+            else:
+                if "__rev" in selected_key:
+                    stage_key, rev_str = selected_key.rsplit("__rev", 1)
+                    target_rev = int(rev_str)
+                else:
+                    stage_key = selected_key
+                    target_rev = None
 
-        filtered = [
-            e for e in events
-            if e.get("event_type") in selected_types
-            and (not search_term or search_term.lower() in json.dumps(e).lower())
-        ]
+                icon, stage_label, role = STAGE_META.get(stage_key, ("•", stage_key, ""))
+                st.markdown(f"### {icon} {stage_label}")
+                if role and role != "—":
+                    st.markdown(
+                        f'<div class="artifact-tag">Agent: {role}</div>',
+                        unsafe_allow_html=True,
+                    )
 
-        st.markdown(f"<small style='color:#8b949e'>{len(filtered)} events shown</small>", unsafe_allow_html=True)
-        st.divider()
+                stage_arts = by_stage.get(stage_key, [])
+                if target_rev is not None:
+                    stage_arts = [a for a in stage_arts if a["version"] == target_rev]
 
-        for evt in filtered:
-            etype = evt.get("event_type", "")
-            icon = EVENT_ICONS.get(etype, "•")
-            payload = evt.get("payload", {})
-            ts = evt.get("timestamp", "")
-            ts_short = ts[:19].replace("T", " ") if ts else ""
+                if stage_key == "DONE":
+                    final_status = effective_workflow_status(readme, events, snapshots)
+                    if final_status == "COMPLETED":
+                        st.success("✅ Workflow completed successfully. All gates approved.", icon="🎉")
+                    elif final_status == "FAILED":
+                        st.error("❌ Workflow ended in FAILED status.")
+                    elif final_status == "ESCALATED":
+                        st.warning("⚠️ Workflow has been escalated and requires your review and decision.")
+                    else:
+                        st.info(f"Workflow terminal status: {final_status}")
 
-            # Build a readable summary line from payload
-            summary_parts = []
-            for key in ("stage", "from_stage", "to_stage", "artifact_type", "decision", "reason"):
-                if key in payload:
-                    summary_parts.append(f"{key}: **{payload[key]}**")
+                if not stage_arts:
+                    st.info("No artifacts recorded for this stage.")
+                else:
+                    for art in sorted(stage_arts, key=lambda x: (int(x["version"]), str(x["meta"].get("created_at", "")))):
+                        _render_artifact_entry(art)
 
-            summary = "  ·  ".join(summary_parts) if summary_parts else json.dumps(payload)[:80]
+        with evidence_events:
+            st.markdown("### Event Stream")
+            if not events:
+                st.info("No events recorded.")
+                return
 
-            st.markdown(
-                f'<div class="evt">'
-                f'{icon} <strong>{etype}</strong>&nbsp;&nbsp;'
-                f'{summary}'
-                f'<br><span class="evt-time">{ts_short}</span>'
-                f'</div>',
-                unsafe_allow_html=True,
+            col_filter, col_search = st.columns([3, 2])
+            unique_types = sorted({e.get("event_type", "") for e in events})
+            selected_types = col_filter.multiselect(
+                "Filter by event type",
+                options=unique_types,
+                default=unique_types,
             )
+            search_term = col_search.text_input("Search payload", "")
+
+            filtered = [
+                e for e in events
+                if e.get("event_type") in selected_types
+                and (not search_term or search_term.lower() in json.dumps(e).lower())
+            ]
+
+            st.markdown(f"<small style='color:#8b949e'>{len(filtered)} events shown</small>", unsafe_allow_html=True)
+            st.divider()
+
+            for evt in filtered:
+                etype = evt.get("event_type", "")
+                icon = EVENT_ICONS.get(etype, "•")
+                payload = evt.get("payload", {})
+                ts = evt.get("timestamp", "")
+                ts_short = ts[:19].replace("T", " ") if ts else ""
+
+                summary_parts = []
+                for key in ("stage", "from_stage", "to_stage", "artifact_type", "decision", "reason"):
+                    if key in payload:
+                        summary_parts.append(f"{key}: **{payload[key]}**")
+
+                summary = "  ·  ".join(summary_parts) if summary_parts else json.dumps(payload)[:80]
+
+                st.markdown(
+                    f'<div class="evt">'
+                    f'{icon} <strong>{etype}</strong>&nbsp;&nbsp;'
+                    f'{summary}'
+                    f'<br><span class="evt-time">{ts_short}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

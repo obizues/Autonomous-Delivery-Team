@@ -32,18 +32,42 @@ def _to_serializable(value: Any) -> Any:
 
 
 class DemoOutputRecorder:
-    def __init__(self, run_root: Path) -> None:
+    def __init__(self, run_root: Path, append_existing: bool = False) -> None:
         self.run_root = run_root
         self.artifacts_dir = run_root / "artifacts"
         self.snapshots_dir = run_root / "state_snapshots"
         self.events_log_path = run_root / "events.jsonl"
         self.summary_path = run_root / "README.md"
         self._written_artifact_ids: set[str] = set()
+        self._written_event_ids: set[str] = set()
         self._step = 0
 
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
-        if self.events_log_path.exists():
+        if append_existing:
+            self._written_artifact_ids = {
+                file_path.stem.split("_")[0]
+                for file_path in self.artifacts_dir.glob("*.json")
+            }
+            if self.events_log_path.exists():
+                for line in self.events_log_path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        event_id = str(json.loads(line).get("event_id", ""))
+                    except json.JSONDecodeError:
+                        continue
+                    if event_id:
+                        self._written_event_ids.add(event_id)
+            existing_steps = []
+            for file_path in self.snapshots_dir.glob("step_*.json"):
+                prefix = file_path.stem.split("_", 2)[1] if "_" in file_path.stem else "0"
+                try:
+                    existing_steps.append(int(prefix))
+                except ValueError:
+                    continue
+            self._step = max(existing_steps, default=0)
+        elif self.events_log_path.exists():
             self.events_log_path.unlink()
 
     def record_artifacts_from_events(self, engine: Any, workflow_id: str, events: list[Any]) -> list[str]:
@@ -88,6 +112,8 @@ class DemoOutputRecorder:
     def append_events(self, events: list[Any]) -> None:
         with self.events_log_path.open("a", encoding="utf-8") as file_handle:
             for event in events:
+                if event.event_id in self._written_event_ids:
+                    continue
                 file_handle.write(
                     json.dumps(
                         {
@@ -101,6 +127,7 @@ class DemoOutputRecorder:
                     )
                     + "\n"
                 )
+                self._written_event_ids.add(event.event_id)
 
     def write_summary(
         self,
@@ -163,17 +190,43 @@ def _update_latest_output_alias(demo_output_root: Path, run_root: Path) -> tuple
 
 def main() -> None:
     selected_seed_repo = os.getenv("ASF_SEED_REPO", "fake_upload_service")
-    engine = create_engine(seed_repo_name=selected_seed_repo)
-    backlog_item = build_demo_backlog(selected_seed_repo)
-    state = engine.start(backlog_item)
+    selected_repo_url = os.getenv("ASF_REPO_URL")
+    selected_repo_ref = os.getenv("ASF_REPO_REF")
+    resume_workflow_id = os.getenv("ASF_RESUME_WORKFLOW_ID")
+    human_response = os.getenv("ASF_HUMAN_RESPONSE", "")
+    repo_source = selected_repo_url or selected_seed_repo
+    engine = create_engine(
+        seed_repo_name=selected_seed_repo,
+        repo_url=selected_repo_url,
+        repo_ref=selected_repo_ref,
+    )
+
+    if resume_workflow_id:
+        existing_artifacts = engine.artifact_store.list_by_workflow(resume_workflow_id)
+        backlog_item = next((artifact for artifact in existing_artifacts if artifact.__class__.__name__ == "BacklogItem"), None)
+        if backlog_item is None:
+            backlog_item = build_demo_backlog(selected_seed_repo, repo_url=selected_repo_url)
+            backlog_item.title = f"Resumed workflow {resume_workflow_id}"
+        state = engine.resume_from_escalation(
+            workflow_id=resume_workflow_id,
+            human_response=human_response,
+        )
+    else:
+        backlog_item = build_demo_backlog(selected_seed_repo, repo_url=selected_repo_url)
+        state = engine.start(backlog_item)
 
     workflow_id = state.workflow_id
     demo_output_root = Path.cwd() / "demo_output"
     output_root = demo_output_root / workflow_id
-    recorder = DemoOutputRecorder(output_root)
+    recorder = DemoOutputRecorder(output_root, append_existing=bool(resume_workflow_id))
     event_index = 0
     print(f"Workflow started: {workflow_id}")
-    print(f"Seed repo: {selected_seed_repo}")
+    print(f"Repo source: {repo_source}")
+    if selected_repo_ref:
+        print(f"Repo ref: {selected_repo_ref}")
+    if resume_workflow_id:
+        print("Resume mode: applying human intervention and continuing workflow")
+        print(f"Human response: {human_response}")
     print(f"Backlog item: {backlog_item.title}")
     print(f"Demo output directory: {output_root}")
     print("-" * 72)
@@ -188,7 +241,11 @@ def main() -> None:
 
     while True:
         state = engine.state_store.load(workflow_id)
-        if state.status != WorkflowStatus.IN_PROGRESS or state.current_stage == WorkflowStage.DONE:
+        if state.status != WorkflowStatus.IN_PROGRESS:
+            break
+        if state.current_stage == WorkflowStage.DONE:
+            engine.execute_next(workflow_id)
+            state = engine.state_store.load(workflow_id)
             break
 
         previous_stage = state.current_stage
@@ -294,7 +351,7 @@ def main() -> None:
         final_state,
         latest_output_path=latest_output_path,
         execution_summary=execution_summary,
-        seed_repo_name=selected_seed_repo,
+        seed_repo_name=repo_source,
         scenario_title=backlog_item.title,
     )
     latest_path, latest_mode = _update_latest_output_alias(demo_output_root=demo_output_root, run_root=output_root)

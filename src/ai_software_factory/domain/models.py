@@ -104,6 +104,26 @@ class TestResult(BaseArtifact):
 
 
 @dataclass
+class EscalationArtifact(BaseArtifact):
+    reason: str = ""
+    raised_by: str = ""
+    escalation_status: EscalationStatus = EscalationStatus.OPEN
+    human_response: str | None = None
+    resolution_summary: str = ""
+    resolved_at: datetime | None = None
+
+
+@dataclass
+class HumanIntervention(BaseArtifact):
+    escalation_artifact_id: str | None = None
+    responder: str = "human_operator"
+    response: str = ""
+    desired_outcome: str = "resume_workflow"
+    resume_stage: WorkflowStage = WorkflowStage.IMPLEMENTATION
+    resolution_notes: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ApprovalRecord:
     workflow_id: str
     stage: WorkflowStage

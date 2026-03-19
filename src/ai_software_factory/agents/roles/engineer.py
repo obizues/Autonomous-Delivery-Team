@@ -7,7 +7,7 @@ from typing import cast
 
 from ai_software_factory.agents.base import Agent, AgentContext
 from ai_software_factory.domain.enums import ArtifactStatus, Decision, EventType, WorkflowStage
-from ai_software_factory.domain.models import BaseArtifact, BacklogItem, CodeImplementation, PullRequest, ReviewFeedback, TestResult
+from ai_software_factory.domain.models import BaseArtifact, BacklogItem, CodeImplementation, HumanIntervention, PullRequest, ReviewFeedback, TestResult
 from ai_software_factory.events.bus import EventBus
 from ai_software_factory.execution.file_patch_engine import FilePatchEngine
 from ai_software_factory.execution.repo_workspace import RepoWorkspaceManager
@@ -773,6 +773,7 @@ def process_records(records: list[dict]) -> dict:
         backlog = context.latest(BacklogItem)
         previous_test = context.latest(TestResult)
         previous_feedback = context.latest(ReviewFeedback)
+        human_intervention = context.latest(HumanIntervention)
 
         sandbox_path = self.repo_workspace.ensure_sandbox(workflow_id)
         python_files = list_repo_files(sandbox_path)
@@ -798,6 +799,12 @@ def process_records(records: list[dict]) -> dict:
                 "\n".join(backlog.acceptance_criteria) if backlog else "",
             ]
         )
+        if human_intervention is not None and human_intervention.response:
+            backlog_text += (
+                "\nHuman intervention guidance:\n"
+                f"{human_intervention.response}\n"
+                f"Requested outcome: {human_intervention.desired_outcome}\n"
+            )
         failing_tests = previous_test.failing_tests if previous_test else []
         failure_output = previous_test.output if previous_test else ""
 
@@ -953,6 +960,9 @@ def process_records(records: list[dict]) -> dict:
             notes.append(f"Previous test output snippet: {(previous_test.output or previous_test.stdout)[:280]}")
         if previous_feedback is not None:
             notes.append(f"Previous review feedback: {previous_feedback.comments}")
+        if human_intervention is not None and human_intervention.response:
+            notes.append(f"Human intervention guidance: {human_intervention.response}")
+            notes.append(f"Human requested outcome: {human_intervention.desired_outcome}")
 
         implementation = CodeImplementation(
             workflow_id=workflow_id,

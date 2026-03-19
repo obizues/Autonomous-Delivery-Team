@@ -630,14 +630,17 @@ def render_summary_tab(
         team_rows = team_overview(snapshots)
         cols = st.columns(5)
         for col, row in zip(cols, team_rows):
-            col.markdown(f"**{row['role']}**")
+            role_label = str(row["role"])
+            if role_label == "Engineer":
+                role_label = "Engineer Team"
+            col.markdown(f"**{role_label}**")
             status_text = str(row["status"])
             if row["role"] == "Engineer" and engineer_lane_count > 0:
                 status_text = f"{status_text} · {engineer_lane_count} parallel lanes"
             col.markdown(f"<small style='color:#8b949e'>{status_text}</small>", unsafe_allow_html=True)
             col.caption(f"Last: {row['last_stage']}")
             if row["role"] == "Engineer" and engineer_lane_ids:
-                col.caption("Lanes: " + ", ".join(engineer_lane_ids))
+                col.caption("Engineers: " + ", ".join(engineer_lane_ids))
 
     # ── Parallel engineer lanes visualization ─────────────────────────────
     engineer_lanes = []

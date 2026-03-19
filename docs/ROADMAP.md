@@ -11,6 +11,7 @@
 - Best Effort escalation mode
 - Externalized gate policy configuration
 - Run quality scorecards
+- v0.4 cross-repo autonomy backlog: `V0_4_CROSS_REPO_AUTONOMY_BACKLOG.md`
 
 ## Future Improvements
 

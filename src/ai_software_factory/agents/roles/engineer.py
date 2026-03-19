@@ -1174,8 +1174,11 @@ def process_records(records: list[dict]) -> dict:
             if lane_id
         ]
         cross_review_matrix = self._build_cross_review_matrix(lane_ids)
-        reviewer_lanes = sorted(set(cross_review_matrix.values()))
-        reviewer_label = ", ".join(reviewer_lanes) if reviewer_lanes else "peer_engineer"
+        review_pairs = [
+            f"{reviewer_lane} reviews {lane_id}"
+            for lane_id, reviewer_lane in sorted(cross_review_matrix.items())
+        ]
+        reviewer_label = "; ".join(review_pairs) if review_pairs else "peer_engineer"
 
         if pr is None:
             review = ReviewFeedback(

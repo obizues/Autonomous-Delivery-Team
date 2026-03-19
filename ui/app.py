@@ -789,7 +789,7 @@ def render_summary_tab(
             if row.get("stage") == "IMPLEMENTATION" and row.get("revision") in lanes_by_revision:
                 lanes = lanes_by_revision[row["revision"]]
                 st.markdown("<div style='margin-left:20px;margin-top:4px;margin-bottom:8px;padding-left:12px;border-left:3px solid #60a5fa'>", unsafe_allow_html=True)
-                st.markdown("<small style='color:#7c3aed;font-weight:700'>🔀 Parallel lanes executing in parallel:</small>")
+                st.markdown("<small style='color:#7c3aed;font-weight:700'>🔀 Parallel lanes executing in parallel:</small>", unsafe_allow_html=True)
                 for lane_summary in lanes:
                     st.markdown(f"<small style='color:#8b949e;font-family:monospace'>{lane_summary}</small>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)

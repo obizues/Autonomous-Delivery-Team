@@ -201,10 +201,20 @@ def team_overview(snapshots: dict[str, list[dict]]) -> list[dict[str, str | int]
         "Test Engineer",
     ]
     rows: list[dict[str, str | int]] = []
+
+    role_aliases: dict[str, set[str]] = {
+        "Engineer": {"Engineer", "Engineer Team", "Engineer Agents"},
+    }
+
+    def _matches_role(stage_role: str, role: str) -> bool:
+        if stage_role == role:
+            return True
+        return stage_role in role_aliases.get(role, set())
+
     for role in role_order:
         role_stages = [
             stage for stage in STAGE_ORDER
-            if STAGE_META.get(stage, ("", "", ""))[2] == role
+            if _matches_role(STAGE_META.get(stage, ("", "", ""))[2], role)
         ]
         role_revisions: set[int] = set()
         stage_executions = 0

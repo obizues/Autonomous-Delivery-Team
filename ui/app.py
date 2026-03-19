@@ -569,6 +569,11 @@ def render_summary_tab(
     snapshots: dict,
 ) -> None:
     active_context = detect_active_context(artifacts, events)
+    lane_insights = engineer_lane_insights_by_revision(events)
+    latest_lane_revision = max(lane_insights.keys()) if lane_insights else None
+    latest_lane_rows = lane_insights.get(latest_lane_revision, []) if latest_lane_revision is not None else []
+    engineer_lane_count = len(latest_lane_rows)
+    engineer_lane_ids = [str(row.get("lane_id", "")) for row in latest_lane_rows if row.get("lane_id")]
     title = get_backlog_title(artifacts)
     problem = get_backlog_problem(artifacts)
     status = effective_workflow_status(readme, events, snapshots)
@@ -613,6 +618,7 @@ def render_summary_tab(
                 <span style="color:{_tokens['text_secondary']};font-size:0.85rem">✅&nbsp;Gates approved: <strong>{approved}</strong></span>
                 <span style="color:{_tokens['text_secondary']};font-size:0.85rem">⚠&nbsp;Revision requests: <strong>{changes_req}</strong></span>
                 <span style="color:{_tokens['text_secondary']};font-size:0.85rem">🔀&nbsp;PRs (latest revision): <strong>{len(latest_revision_prs)}</strong></span>
+                <span style="color:{_tokens['text_secondary']};font-size:0.85rem">👷&nbsp;Engineer lanes: <strong>{engineer_lane_count}</strong></span>
             </div>
         </div>
         """,
@@ -625,8 +631,13 @@ def render_summary_tab(
         cols = st.columns(5)
         for col, row in zip(cols, team_rows):
             col.markdown(f"**{row['role']}**")
-            col.markdown(f"<small style='color:#8b949e'>{row['status']}</small>", unsafe_allow_html=True)
+            status_text = str(row["status"])
+            if row["role"] == "Engineer" and engineer_lane_count > 0:
+                status_text = f"{status_text} · {engineer_lane_count} parallel lanes"
+            col.markdown(f"<small style='color:#8b949e'>{status_text}</small>", unsafe_allow_html=True)
             col.caption(f"Last: {row['last_stage']}")
+            if row["role"] == "Engineer" and engineer_lane_ids:
+                col.caption("Lanes: " + ", ".join(engineer_lane_ids))
 
     # ── Parallel engineer lanes visualization ─────────────────────────────
     engineer_lanes = []
@@ -751,8 +762,14 @@ def render_summary_tab(
         for row in timeline:
             c1, c2, c3, c4 = st.columns([3, 2, 4, 2])
             c1.markdown(f"{row['icon']} **{row['label']}**")
+            role_label = str(row["role"])
+            if (
+                row.get("stage") in {"IMPLEMENTATION", "PULL_REQUEST_CREATED", "MERGE_CONFLICT_GATE", "PEER_CODE_REVIEW_GATE"}
+                and row.get("revision") in lanes_by_revision
+            ):
+                role_label = f"Engineer Team ({len(lanes_by_revision[row['revision']])} lanes)"
             c2.markdown(
-                f"<span style='color:#8b949e'>{row['role']}</span>",
+                f"<span style='color:#8b949e'>{role_label}</span>",
                 unsafe_allow_html=True,
             )
             art_str = ", ".join(row["artifact_types"]) if row["artifact_types"] else "—"

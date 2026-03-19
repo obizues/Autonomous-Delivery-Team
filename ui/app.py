@@ -875,7 +875,7 @@ def render_summary_tab(
         if checklist and decision == "APPROVED":
             with st.expander(f"Acceptance checklist ({len(checklist)} criteria)", expanded=False):
                 for c in checklist:
-                    st.markdown(f"- {c}")
+                    st.markdown(f"- ✅ {c}")
     elif status == "COMPLETED":
         st.success("Workflow completed successfully. Feature accepted by Product Owner.", icon="🎉")
     else:

@@ -872,7 +872,7 @@ def render_summary_tab(
 
     # ── Key Issues Found ────────────────────────────────────────────────────
     st.divider()
-    st.markdown("#### 🔍 Issue History")
+    st.markdown("#### 🔍 Revision History (Resolved + Open)")
     issues_list = extract_key_issues(artifacts, events)
     if not issues_list:
         st.success(

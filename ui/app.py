@@ -1150,13 +1150,18 @@ def render_main(
             def _render_artifact_entry(art: dict[str, Any], include_stage: bool = False) -> None:
                 art_label = ARTIFACT_TYPE_LABELS.get(art["type"], art["type"])
                 rev_label = f"Rev {art['version']}"
+                actor_label = str(art.get("created_by", ""))
+                if art.get("type") == "ReviewFeedback":
+                    reviewer = str(art.get("meta", {}).get("reviewer", "")).strip()
+                    if reviewer:
+                        actor_label = reviewer
                 stage_label_text = ""
                 if include_stage:
                     _, stage_name, _ = STAGE_META.get(art["stage"], ("", art["stage"], ""))
                     stage_label_text = f" · {stage_name}"
 
                 with st.expander(
-                    f"**{art_label}** · {rev_label}{stage_label_text} — created by `{art['created_by']}`",
+                    f"**{art_label}** · {rev_label}{stage_label_text} — created by `{actor_label}`",
                     expanded=False,
                 ):
                     highlights = artifact_highlights(art)

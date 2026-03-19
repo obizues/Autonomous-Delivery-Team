@@ -32,7 +32,7 @@ STAGE_META: dict[str, tuple[str, str, str]] = {
     "ARCHITECTURE_DESIGN":      ("🏗️", "Architecture Design",      "Architect"),
     "IMPLEMENTATION":           ("💻", "Implementation",           "Engineer"),
     "PULL_REQUEST_CREATED":     ("🔀", "Pull Request",             "Engineer"),
-    "MERGE_CONFLICT_GATE":      ("🧷", "Merge Conflict Gate",      "Engineer"),
+    "MERGE_CONFLICT_GATE":      ("🧷", "Merge Conflict Gate",      "Merge Conflict Guard"),
     "ARCHITECTURE_REVIEW_GATE": ("🏛️", "Architecture Review",     "Architect"),
     "PEER_CODE_REVIEW_GATE":    ("👥", "Peer Code Review",         "Engineer"),
     "TEST_VALIDATION_GATE":     ("🧪", "Test Validation",          "Test Engineer"),

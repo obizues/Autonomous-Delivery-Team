@@ -17,6 +17,27 @@ Engine (ai_software_factory)
   └─ Execution (repo workspace, patching, pytest)
 ```
 
+```mermaid
+flowchart TB
+    UI[Streamlit UI] --> ACTIONS[ui/actions.py]
+    ACTIONS --> MAIN[python -m ai_software_factory]
+    MAIN --> ENGINE[WorkflowEngine]
+
+    ENGINE --> AGENTS[Role Agents]
+    ENGINE --> STORES[State + Artifact Store]
+    ENGINE --> EVENTS[EventBus]
+
+    AGENTS --> EXEC[Repo Workspace + Patch Engine + Pytest Runner]
+    EXEC --> STORES
+    EVENTS --> OUT[demo_output/events.jsonl]
+    STORES --> SNAP[demo_output/state_snapshots]
+    STORES --> ARTS[demo_output/artifacts]
+
+    ARTS --> UI
+    OUT --> UI
+    SNAP --> UI
+```
+
 ## Core Modules
 
 - `src/ai_software_factory/workflow/`

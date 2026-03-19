@@ -4,6 +4,13 @@ Version: **v0.1.0**
 
 An autonomous software delivery simulation platform that orchestrates role-based AI agents from backlog intake through production acceptance, with parallel engineer execution, governance gates, revision loops, and escalation/resume handling.
 
+## Why This Matters
+
+- Demonstrates how autonomous delivery can stay auditable, deterministic, and review-driven.
+- Shows practical patterns for multi-agent coordination, not just single-agent code generation.
+- Bridges autonomous implementation with governance gates, escalation, and human intervention.
+- Provides a concrete reference implementation for agentic SDLC experimentation.
+
 ## What This Project Does
 
 - Runs a multi-stage delivery workflow with role-specialized agents.
@@ -16,6 +23,25 @@ An autonomous software delivery simulation platform that orchestrates role-based
 ## Workflow Stages
 
 `BACKLOG_INTAKE → PRODUCT_DEFINITION → REQUIREMENTS_ANALYSIS → ARCHITECTURE_DESIGN → IMPLEMENTATION → PULL_REQUEST_CREATED → MERGE_CONFLICT_GATE → ARCHITECTURE_REVIEW_GATE → PEER_CODE_REVIEW_GATE → TEST_VALIDATION_GATE → PRODUCT_ACCEPTANCE_GATE → DONE`
+
+## Quick Architecture Diagram
+
+```mermaid
+flowchart LR
+  A[Backlog Intake] --> B[Design Stages]
+  B --> C[Implementation\nEngineer Agents + Parallel Lanes]
+  C --> D[Pull Requests]
+  D --> E[Merge Conflict Gate]
+  E --> F[Architecture Review]
+  F --> G[Peer Code Review]
+  G --> H[Test Validation]
+  H --> I[Product Acceptance]
+  I --> J[Done]
+
+  H -- REQUEST_CHANGES --> C
+  G -- REQUEST_CHANGES --> C
+  F -- REQUEST_CHANGES --> C
+```
 
 ## Quick Start
 
@@ -77,7 +103,12 @@ autonomous_delivery/
 - Contributing: `docs/CONTRIBUTING.md`
 - Roadmap: `docs/ROADMAP.md`
 - Release Notes: `docs/RELEASE_NOTES_v0.1.0.md`
+- Screenshots Guide: `docs/SCREENSHOTS.md`
 - Changelog: `CHANGELOG.md`
+
+## Screenshots
+
+For external viewers, include dashboard screenshots under `docs/assets/screenshots/` using the naming guidance in `docs/SCREENSHOTS.md`.
 
 ## Configuration (Environment Variables)
 

@@ -636,7 +636,13 @@ def render_summary_tab(
             col.markdown(f"**{role_label}**")
             status_text = str(row["status"])
             if row["role"] == "Engineer" and engineer_lane_count > 0:
-                status_text = f"{status_text} · {engineer_lane_count} parallel lanes"
+                cycles = int(row.get("cycles", 0) or 0)
+                revision_label = "revision" if cycles == 1 else "revisions"
+                engineer_label = "engineer" if engineer_lane_count == 1 else "engineers"
+                if cycles > 0:
+                    status_text = f"{engineer_lane_count} {engineer_label} active across {cycles} {revision_label}"
+                else:
+                    status_text = f"{engineer_lane_count} {engineer_label} active"
             col.markdown(f"<small style='color:#8b949e'>{status_text}</small>", unsafe_allow_html=True)
             col.caption(f"Last: {row['last_stage']}")
             if row["role"] == "Engineer" and engineer_lane_ids:

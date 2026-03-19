@@ -7,94 +7,55 @@ from the autonomous_delivery directory.
 from __future__ import annotations
 
 import json
-import os
-import re
-import subprocess
-import sys
-from collections import defaultdict
-from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
-# ── Constants ────────────────────────────────────────────────────────────────
+from actions import (
+    latest_escalation_reason,
+    run_escalation_demo_from_dashboard,
+    run_resume_from_dashboard,
+    run_workflow_from_dashboard,
+)
+from analytics import (
+    artifact_highlights,
+    build_graph_nodes,
+    build_stage_timeline,
+    detect_revision_cycles,
+    extract_key_decisions,
+    extract_key_issues,
+    infer_cycle_reason,
+    infer_next_revision_changes,
+    patch_events_by_revision,
+    planner_insights_by_revision,
+)
+from config import (
+    ARTIFACT_TYPE_LABELS,
+    DEMO_OUTPUT,
+    EVENT_ICONS,
+    REVIEW_GATES,
+    STAGE_META,
+    STAGE_ORDER,
+    TOKENS,
+)
+from loader import load_artifacts, load_events, load_readme, load_snapshots
+from query import (
+    artifacts_by_stage,
+    count_decisions,
+    decision_badge,
+    detect_active_context,
+    effective_workflow_status,
+    first_artifact,
+    get_backlog_problem,
+    get_backlog_title,
+    latest_artifact,
+    latest_snapshot,
+    stage_decisions,
+    team_overview,
+)
 
-BASE_DIR = Path(__file__).parent.parent
-DEMO_OUTPUT = BASE_DIR / "demo_output" / "latest"
-
-STAGE_ORDER = [
-    "BACKLOG_INTAKE",
-    "PRODUCT_DEFINITION",
-    "REQUIREMENTS_ANALYSIS",
-    "ARCHITECTURE_DESIGN",
-    "IMPLEMENTATION",
-    "PULL_REQUEST_CREATED",
-    "ARCHITECTURE_REVIEW_GATE",
-    "PEER_CODE_REVIEW_GATE",
-    "TEST_VALIDATION_GATE",
-    "PRODUCT_ACCEPTANCE_GATE",
-    "DONE",
-]
-
-STAGE_META: dict[str, tuple[str, str, str]] = {
-    "BACKLOG_INTAKE":           ("📋", "Backlog Intake",          "Product Owner"),
-    "PRODUCT_DEFINITION":       ("📝", "Product Definition",       "Product Owner"),
-    "REQUIREMENTS_ANALYSIS":    ("🔍", "Requirements Analysis",    "Business Analyst"),
-    "ARCHITECTURE_DESIGN":      ("🏗️", "Architecture Design",      "Architect"),
-    "IMPLEMENTATION":           ("💻", "Implementation",           "Engineer"),
-    "PULL_REQUEST_CREATED":     ("🔀", "Pull Request",             "Engineer"),
-    "ARCHITECTURE_REVIEW_GATE": ("🏛️", "Architecture Review",     "Architect"),
-    "PEER_CODE_REVIEW_GATE":    ("👥", "Peer Code Review",         "Engineer"),
-    "TEST_VALIDATION_GATE":     ("🧪", "Test Validation",          "Test Engineer"),
-    "PRODUCT_ACCEPTANCE_GATE":  ("✅", "Product Acceptance",        "Product Owner"),
-    "DONE":                     ("🎉", "Done",                     "—"),
-}
-
-REVIEW_GATES = {
-    "ARCHITECTURE_REVIEW_GATE",
-    "PEER_CODE_REVIEW_GATE",
-    "TEST_VALIDATION_GATE",
-    "PRODUCT_ACCEPTANCE_GATE",
-}
-
-ARTIFACT_TYPE_LABELS = {
-    "BacklogItem":        "Backlog Item",
-    "RequirementsSpec":   "Requirements Spec",
-    "ArchitectureSpec":   "Architecture Design",
-    "CodeImplementation": "Implementation Plan",
-    "EscalationArtifact": "Workflow Escalation",
-    "HumanIntervention":  "Human Intervention",
-    "PullRequest":        "Pull Request",
-    "ReviewFeedback":     "Review Feedback",
-    "TestResult":         "Test Report",
-}
-
-EVENT_ICONS = {
-    "WORKFLOW_STARTED":    "🚀",
-    "STAGE_STARTED":       "▶️",
-    "STAGE_COMPLETED":     "✅",
-    "ARTIFACT_CREATED":    "📄",
-    "DECISION_MADE":       "⚖️",
-    "TRANSITION_OCCURRED": "➡️",
-    "APPROVAL_RECORDED":   "✔️",
-    "ESCALATION_RAISED":   "⚠️",
-    "REVISION_STARTED":    "🔄",
-    "REPO_SCANNED": "🗂️",
-    "CHANGE_PLAN_GENERATED": "🧭",
-    "FILES_MODIFIED": "🛠️",
-    "PATCH_APPLIED": "🧩",
-    "PATCH_ROLLED_BACK": "↩️",
-    "TEST_EXECUTION_STARTED": "🧪",
-    "TEST_EXECUTION_COMPLETED": "📋",
-    "TEST_PASSED": "✅",
-    "TEST_FAILED": "❌",
-    "HUMAN_FEEDBACK_RECORDED": "🧑‍💼",
-    "ESCALATION_RESOLVED": "🟢",
-    "WORKFLOW_RESUMED": "🔁",
-    "WORKFLOW_COMPLETED":  "🏁",
-}
-
-UI_SQLITE_PATH = "generated_workspace/asf_state_ui.db"
+# Alias so all inline HTML f-strings continue to work unchanged
+_tokens = TOKENS
 
 # ── Page config ──────────────────────────────────────────────────────────────
 
@@ -104,23 +65,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-_tokens = {
-    "app_bg": "#f3f6fb",
-    "sidebar_bg": "#ffffff",
-    "text_primary": "#0b1220",
-    "text_secondary": "#1f2937",
-    "text_muted": "#334155",
-    "code_fg": "#1e40af",
-    "code_bg": "#e0ecff",
-    "surface": "#ffffff",
-    "surface_alt": "#f1f5f9",
-    "border": "#94a3b8",
-    "hover": "#dbe7f5",
-    "chip_bg": "#ffffff",
-    "wf_current_bg": "#dbeafe",
-    "wf_loop_bg": "#fff7ed",
-}
 
 st.markdown(
     f"""
@@ -218,525 +162,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Data loaders ─────────────────────────────────────────────────────────────
 
-
-@st.cache_data(ttl=5)
-def load_readme() -> dict[str, str]:
-    path = DEMO_OUTPUT / "README.md"
-    if not path.exists():
-        return {}
-    text = path.read_text(encoding="utf-8")
-    data: dict[str, str] = {}
-    for line in text.splitlines():
-        # Format: "- key: value"  or  "**key**: value"
-        m = re.match(r"[-*]\s+([\w_]+):\s+(.+)", line) or re.match(r"\*\*(.+?)\*\*[:\s]+(.+)", line)
-        if m:
-            data[m.group(1).strip()] = m.group(2).strip()
-    return data
-
-
-@st.cache_data(ttl=5)
-def load_artifacts() -> list[dict[str, Any]]:
-    """Return list of artifact dicts, each with parsed JSON metadata + md_content."""
-    arts_dir = DEMO_OUTPUT / "artifacts"
-    if not arts_dir.exists():
-        return []
-
-    # Build uuid → md file mapping
-    md_by_uuid: dict[str, Path] = {}
-    for f in arts_dir.glob("*.md"):
-        uuid = f.stem.split("_")[0]
-        md_by_uuid[uuid] = f
-
-    artifacts = []
-    for json_file in sorted(arts_dir.glob("*.json")):
-        uuid = json_file.stem.split("_")[0]
-        artifact_type = "_".join(json_file.stem.split("_")[1:])
-        try:
-            meta = json.loads(json_file.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-
-        md_content = ""
-        if uuid in md_by_uuid:
-            try:
-                md_content = md_by_uuid[uuid].read_text(encoding="utf-8")
-            except Exception:
-                pass
-
-        artifacts.append({
-            "uuid": uuid,
-            "type": artifact_type,
-            "stage": meta.get("stage", "UNKNOWN"),
-            "version": meta.get("version", 1),
-            "created_by": meta.get("created_by", ""),
-            "status": meta.get("status", ""),
-            "meta": meta,
-            "md": md_content,
-        })
-
-    def artifact_sort_key(item: dict[str, Any]) -> tuple[int, int, str, str]:
-        stage = str(item.get("stage", "UNKNOWN"))
-        try:
-            stage_index = STAGE_ORDER.index(stage)
-        except ValueError:
-            stage_index = len(STAGE_ORDER)
-
-        version = int(item.get("version", 1) or 1)
-        created_at = str(item.get("meta", {}).get("created_at", ""))
-        uuid = str(item.get("uuid", ""))
-        return stage_index, version, created_at, uuid
-
-    artifacts.sort(key=artifact_sort_key)
-    return artifacts
-
-
-@st.cache_data(ttl=5)
-def load_events() -> list[dict[str, Any]]:
-    path = DEMO_OUTPUT / "events.jsonl"
-    if not path.exists():
-        return []
-    events = []
-    seen_event_ids: set[str] = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line:
-            try:
-                event = json.loads(line)
-                event_id = str(event.get("event_id", ""))
-                if event_id:
-                    if event_id in seen_event_ids:
-                        continue
-                    seen_event_ids.add(event_id)
-                events.append(event)
-            except Exception:
-                pass
-    events.sort(key=lambda item: (str(item.get("timestamp", "")), str(item.get("event_id", ""))))
-    return events
-
-
-@st.cache_data(ttl=5)
-def load_snapshots() -> dict[str, list[dict]]:
-    """Return {stage_key: [snapshot, ...]} ordered by step number."""
-    snaps_dir = DEMO_OUTPUT / "state_snapshots"
-    if not snaps_dir.exists():
-        return {}
-    by_stage: dict[str, list[dict]] = defaultdict(list)
-    for f in sorted(snaps_dir.glob("step_*.json")):
-        try:
-            snap = json.loads(f.read_text(encoding="utf-8"))
-            stage = snap.get("current_stage", "UNKNOWN")
-            snap["_filename"] = f.name
-            by_stage[stage].append(snap)
-        except Exception:
-            pass
-    return dict(by_stage)
-
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-
-def decision_badge(decision: str) -> str:
-    cls = {
-        "APPROVED": "badge-approved",
-        "REQUEST_CHANGES": "badge-changes",
-        "REJECT": "badge-reject",
-    }.get(decision, "badge-completed")
-    label = decision.replace("_", " ")
-    return f'<span class="badge {cls}">{label}</span>'
-
-
-def stage_decisions(events: list[dict]) -> dict[str, list[str]]:
-    """Map stage → list of decision strings from events."""
-    result: dict[str, list[str]] = defaultdict(list)
-    for evt in events:
-        if evt.get("event_type") == "DECISION_MADE":
-            p = evt.get("payload", {})
-            stage = evt.get("stage", "") or p.get("stage", "")
-            decision = p.get("decision", "")
-            if stage and decision:
-                result[stage].append(decision)
-    return dict(result)
-
-
-def artifacts_by_stage(artifacts: list[dict]) -> dict[str, list[dict]]:
-    result: dict[str, list[dict]] = defaultdict(list)
-    for a in artifacts:
-        result[a["stage"]].append(a)
-    return dict(result)
-
-
-def get_backlog_title(artifacts: list[dict]) -> str:
-    for a in artifacts:
-        if a["type"] == "BacklogItem":
-            return a["meta"].get("title", "Untitled")
-    return "Untitled"
-
-
-def get_backlog_problem(artifacts: list[dict]) -> str:
-    for a in artifacts:
-        if a["type"] == "BacklogItem":
-            return a["meta"].get("problem_statement", "")
-    return ""
-
-
-def count_decisions(events: list[dict], decision: str) -> int:
-    return sum(
-        1 for e in events
-        if e.get("event_type") == "DECISION_MADE"
-        and e.get("payload", {}).get("decision") == decision
-    )
-
-
-def latest_artifact(
-    artifacts: list[dict],
-    artifact_type: str,
-    stage: str | None = None,
-) -> dict | None:
-    matches: list[dict] = []
-    for artifact in artifacts:
-        if artifact.get("type") != artifact_type:
-            continue
-        if stage is not None and artifact.get("stage") != stage:
-            continue
-        matches.append(artifact)
-
-    if not matches:
-        return None
-
-    def sort_key(artifact: dict) -> tuple[int, str, str]:
-        version = int(artifact.get("version", 1) or 1)
-        created_at = str(artifact.get("meta", {}).get("created_at", ""))
-        artifact_id = str(artifact.get("meta", {}).get("artifact_id", artifact.get("uuid", "")))
-        return version, created_at, artifact_id
-
-    return max(matches, key=sort_key)
-
-
-def first_artifact(
-    artifacts: list[dict],
-    stage: str,
-    version: int,
-    artifact_type: str,
-) -> dict | None:
-    for artifact in artifacts:
-        if (
-            artifact.get("stage") == stage
-            and int(artifact.get("version", 1)) == version
-            and artifact.get("type") == artifact_type
-        ):
-            return artifact
-    return None
-
-
-def list_added(previous_items: list[str], next_items: list[str]) -> list[str]:
-    previous_set = set(previous_items)
-    return [item for item in next_items if item not in previous_set]
-
-
-def latest_snapshot(snapshots: dict[str, list[dict]]) -> dict:
-    newest: dict = {}
-    newest_step = -1
-    for stage_items in snapshots.values():
-        for item in stage_items:
-            filename = item.get("_filename", "")
-            match = re.search(r"step_(\d+)_", filename)
-            step = int(match.group(1)) if match else -1
-            if step > newest_step:
-                newest_step = step
-                newest = item
-    return newest
-
-
-def effective_workflow_status(
-    readme: dict[str, str],
-    events: list[dict[str, Any]],
-    snapshots: dict[str, list[dict]],
-) -> str:
-    readme_status = str(readme.get("final_status", "") or "").upper()
-    latest = latest_snapshot(snapshots)
-    snapshot_status = str(latest.get("status", "") or "").upper()
-    final_stage = str(readme.get("final_stage", latest.get("current_stage", "")) or "").upper()
-
-    for candidate in (readme_status, snapshot_status):
-        if candidate in {"COMPLETED", "FAILED", "ESCALATED"}:
-            return candidate
-
-    if final_stage == "DONE":
-        if any(event.get("event_type") == "ESCALATION_RAISED" for event in events):
-            return "ESCALATED"
-        return "COMPLETED"
-
-    if readme_status:
-        return readme_status
-    if snapshot_status:
-        return snapshot_status
-    return "UNKNOWN"
-
-
-def detect_active_context(artifacts: list[dict], events: list[dict]) -> dict[str, str]:
-    backlog = latest_artifact(artifacts, "BacklogItem", "BACKLOG_INTAKE")
-    latest_scan = None
-    for event in reversed(events):
-        if event.get("event_type") == "REPO_SCANNED":
-            latest_scan = event
-            break
-
-    seed_repo_name = "unknown"
-    repo_profile = "unknown"
-    sandbox_path = "N/A"
-
-    if latest_scan:
-        payload = latest_scan.get("payload", {})
-        seed_repo_name = str(payload.get("seed_repo_name", "unknown"))
-        sandbox_path = str(payload.get("sandbox_path", "N/A"))
-
-    latest_impl = latest_artifact(artifacts, "CodeImplementation", "IMPLEMENTATION")
-    if latest_impl:
-        for note in latest_impl.get("meta", {}).get("implementation_notes", []):
-            if note.startswith("Detected repo profile: "):
-                repo_profile = note.split(": ", 1)[1].strip()
-            if note.startswith("Seed repo: ") and seed_repo_name == "unknown":
-                seed_repo_name = note.split(": ", 1)[1].strip()
-            if note.startswith("Repo source: ") and seed_repo_name == "unknown":
-                seed_repo_name = note.split(": ", 1)[1].strip()
-
-    title = backlog.get("meta", {}).get("title", "Active backlog") if backlog else "Active backlog"
-    problem = backlog.get("meta", {}).get("problem_statement", "") if backlog else ""
-
-    return {
-        "seed_repo_name": seed_repo_name,
-        "repo_profile": repo_profile,
-        "scenario_title": title,
-        "problem_statement": problem,
-        "sandbox_path": sandbox_path,
-    }
-
-
-def team_overview(snapshots: dict[str, list[dict]]) -> list[dict[str, str | int]]:
-    role_order = [
-        "Product Owner",
-        "Business Analyst",
-        "Architect",
-        "Engineer",
-        "Test Engineer",
-    ]
-    rows: list[dict[str, str | int]] = []
-    for role in role_order:
-        role_stages = [
-            stage for stage in STAGE_ORDER
-            if STAGE_META.get(stage, ("", "", ""))[2] == role
-        ]
-        role_revisions: set[int] = set()
-        stage_executions = 0
-        for stage in role_stages:
-            for snap in snapshots.get(stage, []):
-                stage_executions += 1
-                revision = snap.get("revision")
-                if isinstance(revision, int):
-                    role_revisions.add(revision)
-
-        revision_span = len(role_revisions)
-        last_stage = "—"
-        for stage in reversed(STAGE_ORDER):
-            if stage in role_stages and snapshots.get(stage):
-                last_stage = STAGE_META.get(stage, ("", stage, ""))[1]
-                break
-
-        status = "Not active"
-        if stage_executions > 0:
-            if revision_span <= 1:
-                status = "Completed"
-            else:
-                status = f"Worked across {revision_span} revisions"
-
-        rows.append(
-            {
-                "role": role,
-                "status": status,
-                "cycles": revision_span,
-                "last_stage": last_stage,
-            }
-        )
-    return rows
-
-
-def run_workflow_from_dashboard(
-    seed_repo_name: str,
-    repo_url: str | None = None,
-    repo_ref: str | None = None,
-) -> tuple[bool, str]:
-    try:
-        env = {
-            **os.environ,
-            "PYTHONPATH": "src",
-            "ASF_SEED_REPO": seed_repo_name,
-            "ASF_PERSISTENCE_BACKEND": "sqlite",
-            "ASF_SQLITE_PATH": UI_SQLITE_PATH,
-        }
-        if repo_url:
-            env["ASF_REPO_URL"] = repo_url
-        if repo_ref:
-            env["ASF_REPO_REF"] = repo_ref
-
-        result = subprocess.run(
-            [sys.executable, "-m", "ai_software_factory"],
-            cwd=BASE_DIR,
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-    except Exception as exc:
-        return False, f"Failed to run workflow: {exc}"
-
-    output = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
-    if result.returncode != 0:
-        return False, output[-4000:] if output else "Workflow failed with no output."
-    return True, output[-4000:] if output else "Workflow completed successfully."
-
-
-def run_escalation_demo_from_dashboard() -> tuple[bool, str]:
-    try:
-        result = subprocess.run(
-            [sys.executable, "scripts/demo_escalation.py"],
-            cwd=BASE_DIR,
-            env={
-                **os.environ,
-                "PYTHONPATH": "src",
-                "ASF_PERSISTENCE_BACKEND": "sqlite",
-                "ASF_SQLITE_PATH": UI_SQLITE_PATH,
-            },
-            capture_output=True,
-            text=True,
-        )
-    except Exception as exc:
-        return False, f"Failed to run escalation demo: {exc}"
-
-    output = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
-    if result.returncode != 0:
-        return False, output[-4000:] if output else "Escalation demo failed with no output."
-    return True, output[-4000:] if output else "Escalation demo completed successfully."
-
-
-def run_resume_from_dashboard(workflow_id: str, human_response: str) -> tuple[bool, str]:
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "ai_software_factory"],
-            cwd=BASE_DIR,
-            env={
-                **os.environ,
-                "PYTHONPATH": "src",
-                "ASF_PERSISTENCE_BACKEND": "sqlite",
-                "ASF_SQLITE_PATH": UI_SQLITE_PATH,
-                "ASF_RESUME_WORKFLOW_ID": workflow_id,
-                "ASF_HUMAN_RESPONSE": human_response,
-            },
-            capture_output=True,
-            text=True,
-        )
-    except Exception as exc:
-        return False, f"Failed to resume workflow: {exc}"
-
-    output = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
-    if result.returncode != 0:
-        return False, output[-4000:] if output else "Workflow resume failed with no output."
-    return True, output[-4000:] if output else "Workflow resumed successfully."
-
-
-def latest_escalation_reason(events: list[dict]) -> str | None:
-    for event in reversed(events):
-        if event.get("event_type") != "ESCALATION_RAISED":
-            continue
-        payload = event.get("payload", {})
-        reason = payload.get("reason")
-        if isinstance(reason, str) and reason.strip():
-            return reason.strip()
-    return None
-
-
-def planner_insights_by_revision(events: list[dict]) -> dict[int, list[dict]]:
-    grouped: dict[int, list[dict]] = defaultdict(list)
-    for event in events:
-        if event.get("event_type") != "CHANGE_PLAN_GENERATED":
-            continue
-        payload = event.get("payload", {})
-        revision = payload.get("revision")
-        if not isinstance(revision, int):
-            continue
-        grouped[revision].append(
-            {
-                "summary": payload.get("summary", ""),
-                "confidence": payload.get("confidence", "UNKNOWN"),
-                "files_to_modify": payload.get("files_to_modify", []),
-                "target_symbols": payload.get("target_symbols", {}),
-                "target_confidence": payload.get("target_confidence", {}),
-                "intent_category": payload.get("intent_category", "GENERAL"),
-            }
-        )
-    return dict(grouped)
-
-
-def patch_events_by_revision(events: list[dict]) -> dict[int, list[dict]]:
-    grouped: dict[int, list[dict]] = defaultdict(list)
-    for event in events:
-        event_type = event.get("event_type")
-        if event_type not in {"PATCH_APPLIED", "PATCH_ROLLED_BACK"}:
-            continue
-        payload = event.get("payload", {})
-        revision = payload.get("revision")
-        if not isinstance(revision, int):
-            continue
-        grouped[revision].append(
-            {
-                "event_type": event_type,
-                "file_path": payload.get("file_path", "unknown"),
-                "operation": payload.get("operation", "unknown"),
-                "symbols": payload.get("symbols", []),
-                "message": payload.get("message", ""),
-            }
-        )
-    return dict(grouped)
-
-
-def build_graph_nodes(events: list[dict]) -> list[dict]:
-    transitions = [
-        e for e in events
-        if e.get("event_type") == "TRANSITION_OCCURRED"
-        and e.get("payload", {}).get("from_stage")
-        and e.get("payload", {}).get("to_stage")
-    ]
-    if not transitions:
-        return []
-
-    first_transition = transitions[0]
-    start_stage = first_transition.get("payload", {}).get("from_stage", "BACKLOG_INTAKE")
-
-    nodes: list[dict] = [{
-        "stage": start_stage,
-        "revision": 1,
-        "loop_entry": False,
-    }]
-
-    prev_revision = 1
-    for transition in transitions:
-        payload = transition.get("payload", {})
-        to_stage = payload.get("to_stage", "")
-        next_revision = payload.get("revision", prev_revision)
-        if not isinstance(next_revision, int):
-            next_revision = prev_revision
-
-        loop_entry = to_stage == "IMPLEMENTATION" and next_revision > prev_revision
-        nodes.append(
-            {
-                "stage": to_stage,
-                "revision": next_revision,
-                "loop_entry": loop_entry,
-            }
-        )
-        prev_revision = next_revision
-
-    return nodes
+# ── Tab renderers ─────────────────────────────────────────────────────────────
 
 
 def render_workflow_graph_tab(readme: dict, events: list[dict], snapshots: dict) -> None:
@@ -751,9 +178,9 @@ def render_workflow_graph_tab(readme: dict, events: list[dict], snapshots: dict)
         return
 
     decision_map = stage_decisions(events)
-    stage_counts = defaultdict(int)
+    stage_counts: dict[str, int] = {}
     for node in nodes:
-        stage_counts[node["stage"]] += 1
+        stage_counts[node["stage"]] = stage_counts.get(node["stage"], 0) + 1
 
     latest = latest_snapshot(snapshots)
     current_stage = latest.get("current_stage") or readme.get("final_stage", "DONE")
@@ -782,14 +209,14 @@ def render_workflow_graph_tab(readme: dict, events: list[dict], snapshots: dict)
         unsafe_allow_html=True,
     )
 
-    decision_index: dict[str, int] = defaultdict(int)
+    decision_index: dict[str, int] = {}
 
     for index, node in enumerate(nodes):
         stage = node["stage"]
         revision = node["revision"]
         icon, _, _ = STAGE_META.get(stage, ("•", stage, ""))
 
-        show_revision = stage_counts[stage] > 1 or stage in {
+        show_revision = stage_counts.get(stage, 0) > 1 or stage in {
             "IMPLEMENTATION",
             "PULL_REQUEST_CREATED",
             "ARCHITECTURE_REVIEW_GATE",
@@ -802,21 +229,18 @@ def render_workflow_graph_tab(readme: dict, events: list[dict], snapshots: dict)
         decision = ""
         if stage in REVIEW_GATES:
             decision_list = decision_map.get(stage, [])
-            current_decision_index = decision_index[stage]
-            if current_decision_index < len(decision_list):
-                decision = decision_list[current_decision_index]
-            decision_index[stage] += 1
+            dec_idx = decision_index.get(stage, 0)
+            if dec_idx < len(decision_list):
+                decision = decision_list[dec_idx]
+            decision_index[stage] = dec_idx + 1
 
-        node_status_class = "completed"
-        status_label = "COMPLETED_STAGE"
         is_last = index == len(nodes) - 1
-        if is_last and stage == current_stage:
-            if stage != "DONE":
-                node_status_class = "current"
-                status_label = "CURRENT_STAGE"
-            else:
-                node_status_class = "completed"
-                status_label = "COMPLETED_STAGE"
+        if is_last and stage == current_stage and stage != "DONE":
+            node_status_class = "current"
+            status_label = "CURRENT_STAGE"
+        else:
+            node_status_class = "completed"
+            status_label = "COMPLETED_STAGE"
 
         if node.get("loop_entry"):
             node_status_class = f"{node_status_class} loop"
@@ -988,374 +412,6 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
                             st.markdown(f"- {file_name}: {float(score):.2f}")
                     else:
                         st.markdown("- No confidence scores recorded")
-
-
-# ── Summary helpers ────────────────────────────────────────────────────────────
-
-
-def build_stage_timeline(
-    artifacts: list[dict],
-    events: list[dict],
-    snapshots: dict,
-) -> list[dict]:
-    """
-    Return one row per executed stage (revision-aware) with:
-      stage, label, icon, role, artifact_types, decision, is_gate, revision
-    """
-    decisions_map = stage_decisions(events)
-    by_stage = artifacts_by_stage(artifacts)
-    rows = []
-
-    for s in STAGE_ORDER:
-        snaps = snapshots.get(s, [])
-        icon, label, role = STAGE_META.get(s, ("•", s, ""))
-
-        if s == "DONE":
-            rows.append({
-                "stage": s, "label": label, "icon": icon, "role": role,
-                "artifact_types": [], "decision": "COMPLETED", "is_gate": False,
-                "revision": None,
-            })
-            continue
-
-        if not snaps:
-            continue
-
-        dec_list = decisions_map.get(s, [])
-        multi = len(snaps) > 1
-
-        for i, snap in enumerate(snaps):
-            rev = snap.get("revision", i + 1)
-            stage_arts = [
-                a for a in by_stage.get(s, [])
-                if not multi or a["version"] == rev
-            ]
-            art_types = list(dict.fromkeys(
-                ARTIFACT_TYPE_LABELS.get(a["type"], a["type"]) for a in stage_arts
-            ))
-            dec = dec_list[i] if i < len(dec_list) else ""
-            rows.append({
-                "stage": s,
-                "label": f"{label} (Rev {rev})" if multi else label,
-                "icon": icon,
-                "role": role,
-                "artifact_types": art_types,
-                "decision": dec,
-                "is_gate": s in REVIEW_GATES,
-                "revision": rev,
-            })
-    return rows
-
-
-def extract_key_decisions(artifacts: list[dict], events: list[dict]) -> list[dict]:
-    """
-    For each review gate that was APPROVED, pull the ReviewFeedback meta
-    and return a structured summary entry.
-    """
-    decisions_map = stage_decisions(events)
-    by_stage = artifacts_by_stage(artifacts)
-    result = []
-
-    gate_labels = {
-        "ARCHITECTURE_REVIEW_GATE": "Architecture Review",
-        "PEER_CODE_REVIEW_GATE":    "Peer Code Review",
-        "TEST_VALIDATION_GATE":     "Test Validation",
-        "PRODUCT_ACCEPTANCE_GATE":  "Product Acceptance",
-    }
-
-    for gate, gate_label in gate_labels.items():
-        dec_list = decisions_map.get(gate, [])
-        arts = [a for a in by_stage.get(gate, []) if a["type"] == "ReviewFeedback"]
-
-        for i, dec in enumerate(dec_list):
-            if dec != "APPROVED":
-                continue
-            art = arts[i] if i < len(arts) else (arts[-1] if arts else None)
-            if not art:
-                continue
-            meta = art["meta"]
-            result.append({
-                "gate": gate_label,
-                "reviewer": meta.get("reviewer", meta.get("created_by", "")),
-                "summary": meta.get("comments", meta.get("summary", "")),
-                "notes": meta.get("notes", ""),
-                "revision": art["version"],
-            })
-    gate_order_index = {
-        "Architecture Review": 0,
-        "Peer Code Review": 1,
-        "Test Validation": 2,
-        "Product Acceptance": 3,
-    }
-    result.sort(key=lambda item: (gate_order_index.get(str(item.get("gate", "")), 999), int(item.get("revision", 0) or 0)))
-    return result
-
-
-def extract_key_issues(artifacts: list[dict], events: list[dict]) -> list[dict]:
-    """
-    Find REQUEST_CHANGES decisions and pull issues + suggested_changes
-    from the associated ReviewFeedback / TestResult artifacts.
-    """
-    result = []
-    by_stage = artifacts_by_stage(artifacts)
-
-    gate_sequence = [
-        "ARCHITECTURE_REVIEW_GATE",
-        "PEER_CODE_REVIEW_GATE",
-        "TEST_VALIDATION_GATE",
-        "PRODUCT_ACCEPTANCE_GATE",
-    ]
-
-    for stage in gate_sequence:
-        _, label, _ = STAGE_META.get(stage, ("•", stage, ""))
-        review_feedback = [
-            art
-            for art in by_stage.get(stage, [])
-            if art.get("type") == "ReviewFeedback"
-        ]
-
-        review_feedback.sort(
-            key=lambda art: (
-                int(art.get("version", 1) or 1),
-                str(art.get("meta", {}).get("created_at", "")),
-                str(art.get("uuid", "")),
-            )
-        )
-
-        for feedback in review_feedback:
-            meta = feedback.get("meta", {})
-            if meta.get("decision") != "REQUEST_CHANGES":
-                continue
-
-            revision = int(feedback.get("version", 1) or 1)
-            issues = list(meta.get("issues_identified", []))
-            suggestions = list(meta.get("suggested_changes", []))
-            artifact_type_label = ARTIFACT_TYPE_LABELS.get("ReviewFeedback", "ReviewFeedback")
-
-            matching_test = next(
-                (
-                    art
-                    for art in by_stage.get(stage, [])
-                    if art.get("type") == "TestResult"
-                    and int(art.get("version", 1) or 1) == revision
-                ),
-                None,
-            )
-            if matching_test:
-                test_meta = matching_test.get("meta", {})
-                failing = test_meta.get("failing_tests", [])
-                if failing:
-                    issues = [f"Failing test: {name}" for name in failing]
-                    artifact_type_label = ARTIFACT_TYPE_LABELS.get("TestResult", "TestResult")
-                test_suggestions = test_meta.get("suggested_changes", [])
-                if test_suggestions:
-                    suggestions = list(test_suggestions)
-
-            if issues or suggestions:
-                result.append(
-                    {
-                        "stage_label": label,
-                        "gate": stage,
-                        "artifact_type": artifact_type_label,
-                        "issues": issues,
-                        "suggestions": suggestions,
-                        "revision": revision,
-                    }
-                )
-    result.sort(
-        key=lambda item: (
-            STAGE_ORDER.index(item["gate"]) if item["gate"] in STAGE_ORDER else 999,
-            int(item.get("revision", 0) or 0),
-        )
-    )
-    return result
-
-
-def detect_revision_cycles(events: list[dict]) -> list[dict]:
-    """Detect revision loops from REQUEST_CHANGES + REVISION_STARTED events."""
-    cycles = []
-    for index, event in enumerate(events):
-        if event.get("event_type") != "REVISION_STARTED":
-            continue
-
-        stage = event.get("stage", "")
-        payload = event.get("payload", {})
-        next_revision = payload.get("new_revision")
-        if not isinstance(next_revision, int) or next_revision <= 1:
-            continue
-
-        failed_revision = next_revision - 1
-        decision_notes = ""
-        for prior in reversed(events[:index]):
-            if (
-                prior.get("event_type") == "DECISION_MADE"
-                and prior.get("stage") == stage
-                and prior.get("payload", {}).get("decision") == "REQUEST_CHANGES"
-            ):
-                decision_notes = prior.get("payload", {}).get("notes", "")
-                break
-
-        cycles.append(
-            {
-                "gate": stage,
-                "failed_revision": failed_revision,
-                "next_revision": next_revision,
-                "decision": "REQUEST_CHANGES",
-                "decision_notes": decision_notes,
-            }
-        )
-    return cycles
-
-
-def infer_cycle_reason(cycle: dict, artifacts: list[dict]) -> dict:
-    gate = cycle["gate"]
-    failed_revision = cycle["failed_revision"]
-
-    feedback = first_artifact(artifacts, gate, failed_revision, "ReviewFeedback")
-    test_result = first_artifact(artifacts, gate, failed_revision, "TestResult")
-
-    summary = ""
-    issues: list[str] = []
-
-    if feedback:
-        feedback_meta = feedback.get("meta", {})
-        summary = feedback_meta.get("comments") or feedback_meta.get("summary") or summary
-        issues.extend(feedback_meta.get("issues_identified", []))
-
-    if test_result:
-        test_meta = test_result.get("meta", {})
-        failing_tests = test_meta.get("failing_tests", [])
-        if failing_tests:
-            issues.extend([f"Failing test: {name}" for name in failing_tests])
-        details = test_meta.get("details", [])
-        if details and len(issues) < 6:
-            issues.extend(details[: max(0, 6 - len(issues))])
-
-    if not summary:
-        summary = cycle.get("decision_notes") or "Gate requested changes due to validation or review findings."
-
-    return {
-        "summary": summary,
-        "issues": issues,
-    }
-
-
-def infer_next_revision_changes(cycle: dict, artifacts: list[dict]) -> dict:
-    failed_revision = cycle["failed_revision"]
-    next_revision = cycle["next_revision"]
-
-    implementation_prev = first_artifact(artifacts, "IMPLEMENTATION", failed_revision, "CodeImplementation")
-    implementation_next = first_artifact(artifacts, "IMPLEMENTATION", next_revision, "CodeImplementation")
-
-    pull_request_prev = first_artifact(artifacts, "PULL_REQUEST_CREATED", failed_revision, "PullRequest")
-    pull_request_next = first_artifact(artifacts, "PULL_REQUEST_CREATED", next_revision, "PullRequest")
-
-    tests_prev = first_artifact(artifacts, "TEST_VALIDATION_GATE", failed_revision, "TestResult")
-    tests_next = first_artifact(artifacts, "TEST_VALIDATION_GATE", next_revision, "TestResult")
-
-    architecture_review_prev = first_artifact(artifacts, "ARCHITECTURE_REVIEW_GATE", failed_revision, "ReviewFeedback")
-    architecture_review_next = first_artifact(artifacts, "ARCHITECTURE_REVIEW_GATE", next_revision, "ReviewFeedback")
-
-    implementation_changes: list[str] = []
-    if implementation_prev and implementation_next:
-        previous_files = implementation_prev.get("meta", {}).get("files_changed", [])
-        next_files = implementation_next.get("meta", {}).get("files_changed", [])
-        added_files = list_added(previous_files, next_files)
-        if added_files:
-            implementation_changes.extend([f"Added/updated: {item}" for item in added_files[:6]])
-        previous_summary = implementation_prev.get("meta", {}).get("summary", "")
-        next_summary = implementation_next.get("meta", {}).get("summary", "")
-        if next_summary and next_summary != previous_summary:
-            implementation_changes.append(next_summary)
-    elif implementation_next:
-        implementation_changes.append(
-            implementation_next.get("meta", {}).get("summary", "Implementation updated in next revision.")
-        )
-
-    additional_tests: list[str] = []
-    if tests_prev and tests_next:
-        prev_meta = tests_prev.get("meta", {})
-        next_meta = tests_next.get("meta", {})
-        prev_tests = prev_meta.get("unit_tests", []) + prev_meta.get("integration_tests", [])
-        next_tests = next_meta.get("unit_tests", []) + next_meta.get("integration_tests", [])
-        new_tests = list_added(prev_tests, next_tests)
-        if new_tests:
-            additional_tests.extend([f"Added test: {test_name}" for test_name in new_tests[:6]])
-
-        prev_failed = int(prev_meta.get("failed_cases", 0))
-        next_failed = int(next_meta.get("failed_cases", 0))
-        if next_failed < prev_failed:
-            additional_tests.append(f"Failed tests reduced from {prev_failed} to {next_failed}.")
-        coverage_estimate = next_meta.get("coverage_estimate")
-        if coverage_estimate:
-            additional_tests.append(f"Validation result: {coverage_estimate}")
-
-    architecture_adjustments: list[str] = []
-    if pull_request_prev and pull_request_next:
-        prev_pr_files = pull_request_prev.get("meta", {}).get("files_modified", [])
-        next_pr_files = pull_request_next.get("meta", {}).get("files_modified", [])
-        pr_deltas = list_added(prev_pr_files, next_pr_files)
-        if pr_deltas:
-            architecture_adjustments.extend([f"Pull request scope expanded: {item}" for item in pr_deltas[:5]])
-
-    if architecture_review_prev and architecture_review_next:
-        prev_notes = architecture_review_prev.get("meta", {}).get("comments", "")
-        next_notes = architecture_review_next.get("meta", {}).get("comments", "")
-        if next_notes and next_notes != prev_notes:
-            architecture_adjustments.append("Architecture review notes were updated and re-approved.")
-
-    return {
-        "implementation_changes": implementation_changes,
-        "additional_tests": additional_tests,
-        "architecture_adjustments": architecture_adjustments,
-    }
-
-
-def artifact_highlights(artifact: dict[str, Any]) -> list[str]:
-    meta = artifact.get("meta", {})
-    lines: list[str] = []
-
-    decision = meta.get("decision")
-    if isinstance(decision, str) and decision:
-        lines.append(f"Decision: {decision}")
-
-    for key in ("title", "summary", "comments"):
-        value = meta.get(key)
-        if isinstance(value, str) and value.strip():
-            lines.append(value.strip())
-            break
-
-    if artifact.get("type") == "TestResult":
-        passed = meta.get("passed")
-        failed_cases = meta.get("failed_cases")
-        total_cases = meta.get("total_cases")
-        if isinstance(passed, bool):
-            status = "PASSED" if passed else "FAILED"
-            lines.append(f"pytest status: {status}")
-        if isinstance(failed_cases, int) and isinstance(total_cases, int):
-            lines.append(f"Test cases: {total_cases} total, {failed_cases} failing")
-        failing_tests = meta.get("failing_tests", [])
-        if isinstance(failing_tests, list) and failing_tests:
-            lines.append(f"Failing tests: {', '.join(str(item) for item in failing_tests[:3])}")
-
-    files_changed = meta.get("files_changed", [])
-    if isinstance(files_changed, list) and files_changed:
-        lines.append(f"Files changed: {', '.join(str(item) for item in files_changed[:3])}")
-
-    suggested_changes = meta.get("suggested_changes", [])
-    if isinstance(suggested_changes, list) and suggested_changes:
-        is_acceptance_approved = (
-            str(artifact.get("stage", "")) == "PRODUCT_ACCEPTANCE_GATE"
-            and str(meta.get("decision", "")) == "APPROVED"
-        )
-        label = "Acceptance checklist" if is_acceptance_approved else "Suggested changes"
-        lines.append(f"{label}: {str(suggested_changes[0])}")
-
-    created_at = meta.get("created_at")
-    if isinstance(created_at, str) and created_at:
-        lines.append(f"Created at: {created_at}")
-
-    return lines[:5]
 
 
 def render_revision_insights_tab(artifacts: list[dict], events: list[dict]) -> None:
@@ -1627,7 +683,9 @@ def render_summary_tab(
                 st.markdown("<small style='color:#7c3aed;font-weight:700'>🔀 Parallel lanes executing in parallel:</small>")
                 for lane_summary in lanes:
                     st.markdown(f"<small style='color:#8b949e;font-family:monospace'>{lane_summary}</small>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)    # ── Key Decisions ───────────────────────────────────────────────────────
+                st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Key Decisions ───────────────────────────────────────────────────────
     st.divider()
     st.markdown("#### ⚖️ Key Decisions")
     decisions = extract_key_decisions(artifacts, events)
@@ -1857,7 +915,6 @@ def render_sidebar(
             icon, label, _ = STAGE_META.get(s, ("•", s, ""))
             snaps = snapshots.get(s, [])
             if not snaps and s != "DONE":
-                # stage didn't execute
                 continue
 
             if s == "IMPLEMENTATION":

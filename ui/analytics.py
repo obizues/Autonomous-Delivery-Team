@@ -200,6 +200,23 @@ def merge_conflict_gate_outcomes(artifacts: list[dict]) -> dict[int, dict[str, A
     return outcomes
 
 
+def engineer_revision_rollup(
+    artifacts: list[dict],
+    events: list[dict],
+) -> tuple[
+    dict[int, list[dict]],
+    dict[int, list[dict]],
+    dict[int, dict[str, Any]],
+    int | None,
+]:
+    lane_insights = engineer_lane_insights_by_revision(events)
+    cross_reviews = cross_review_assignments_by_revision(artifacts)
+    merge_gate = merge_conflict_gate_outcomes(artifacts)
+    engineer_revisions = set(lane_insights.keys()) | set(cross_reviews.keys()) | set(merge_gate.keys())
+    latest_engineer_revision = max(engineer_revisions) if engineer_revisions else None
+    return lane_insights, cross_reviews, merge_gate, latest_engineer_revision
+
+
 def quality_trends_by_revision(artifacts: list[dict]) -> list[dict[str, Any]]:
     by_stage = artifacts_by_stage(artifacts)
     revisions = sorted({int(a.get("version", 0) or 0) for a in artifacts if int(a.get("version", 0) or 0) > 0})
@@ -280,16 +297,19 @@ def build_graph_nodes(events: list[dict]) -> list[dict]:
         return []
 
     start_stage = transitions[0].get("payload", {}).get("from_stage", "BACKLOG_INTAKE")
-    nodes: list[dict] = [{"stage": start_stage, "revision": 1, "loop_entry": False}]
+    first_revision = transitions[0].get("payload", {}).get("revision", 1)
+    if not isinstance(first_revision, int) or first_revision <= 0:
+        first_revision = 1
+    nodes: list[dict] = [{"stage": start_stage, "revision": first_revision, "loop_entry": False}]
 
-    prev_revision = 1
+    prev_revision = first_revision
     for transition in transitions:
         payload = transition.get("payload", {})
         to_stage = payload.get("to_stage", "")
         next_revision = payload.get("revision", prev_revision)
         if not isinstance(next_revision, int):
             next_revision = prev_revision
-        loop_entry = to_stage == "IMPLEMENTATION" and next_revision > prev_revision
+        loop_entry = next_revision > prev_revision
         nodes.append({"stage": to_stage, "revision": next_revision, "loop_entry": loop_entry})
         prev_revision = next_revision
 
@@ -471,29 +491,43 @@ def detect_revision_cycles(events: list[dict]) -> list[dict]:
     for index, event in enumerate(events):
         if event.get("event_type") != "REVISION_STARTED":
             continue
-        stage = event.get("stage", "")
+        trigger_stage = event.get("stage", "")
         payload = event.get("payload", {})
         next_revision = payload.get("new_revision")
         if not isinstance(next_revision, int) or next_revision <= 1:
             continue
 
-        failed_revision = next_revision - 1
+        failed_revision = payload.get("old_revision")
+        if not isinstance(failed_revision, int) or failed_revision <= 0:
+            failed_revision = next_revision - 1
+
+        trigger_reason = str(payload.get("reason", ""))
+        trigger_type = "HUMAN_RESUME" if trigger_reason.startswith("Human intervention resume") else "GATE_RETRY"
+
+        gate = trigger_stage
         decision_notes = ""
         for prior in reversed(events[:index]):
-            if (
-                prior.get("event_type") == "DECISION_MADE"
-                and prior.get("stage") == stage
-                and prior.get("payload", {}).get("decision") == "REQUEST_CHANGES"
-            ):
-                decision_notes = prior.get("payload", {}).get("notes", "")
-                break
+            if prior.get("event_type") != "DECISION_MADE":
+                continue
+            prior_payload = prior.get("payload", {})
+            if prior_payload.get("decision") != "REQUEST_CHANGES":
+                continue
+            prior_revision = prior_payload.get("revision")
+            if isinstance(prior_revision, int) and prior_revision != failed_revision:
+                continue
+            gate = prior.get("stage", "") or prior_payload.get("stage", "") or gate
+            decision_notes = prior_payload.get("notes", "")
+            break
 
         cycles.append({
-            "gate":            stage,
+            "gate":            gate,
+            "trigger_stage":   trigger_stage,
             "failed_revision": failed_revision,
             "next_revision":   next_revision,
             "decision":        "REQUEST_CHANGES",
             "decision_notes":  decision_notes,
+            "trigger_reason":  trigger_reason,
+            "trigger_type":    trigger_type,
         })
     return cycles
 

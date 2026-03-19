@@ -21,14 +21,12 @@ from analytics import (
     artifact_highlights,
     build_graph_nodes,
     build_stage_timeline,
-    cross_review_assignments_by_revision,
     detect_revision_cycles,
-    engineer_lane_insights_by_revision,
+    engineer_revision_rollup,
     extract_key_decisions,
     extract_key_issues,
     infer_cycle_reason,
     infer_next_revision_changes,
-    merge_conflict_gate_outcomes,
     patch_events_by_revision,
     planner_insights_by_revision,
     quality_trends_by_revision,
@@ -53,6 +51,7 @@ from query import (
     get_backlog_problem,
     get_backlog_title,
     latest_artifact,
+    latest_observed_revision,
     latest_snapshot,
     stage_decisions,
     team_overview,
@@ -170,15 +169,14 @@ st.markdown(
 # ── Tab renderers ─────────────────────────────────────────────────────────────
 
 
-def render_workflow_graph_tab(readme: dict, events: list[dict], snapshots: dict) -> None:
+def render_workflow_graph_tab(readme: dict, artifacts: list[dict], events: list[dict], snapshots: dict) -> None:
     st.markdown("### 🧭 Workflow Graph")
     st.markdown(
         "Visual path of the current run, including review decisions and revision loops."
     )
 
     # Surface latest human escalation decision in process view for traceability
-    artifact_items = load_artifacts()
-    _render_human_intervention_card(artifact_items)
+    _render_human_intervention_card(artifacts)
 
     nodes = build_graph_nodes(events)
     if not nodes:
@@ -192,18 +190,28 @@ def render_workflow_graph_tab(readme: dict, events: list[dict], snapshots: dict)
 
     latest = latest_snapshot(snapshots)
     current_stage = latest.get("current_stage") or readme.get("final_stage", "DONE")
-    current_revision = latest.get("revision")
-    if not isinstance(current_revision, int):
-        try:
-            current_revision = int(readme.get("revision_count", "1"))
-        except ValueError:
-            current_revision = 1
+    current_revision = latest_observed_revision(artifacts, events, snapshots, readme)
+    if current_revision is None:
+        current_revision = 1
 
-    loop_count = sum(1 for node in nodes if node.get("loop_entry"))
+    cycles = detect_revision_cycles(events)
+    loop_count = len(cycles)
+    human_resume_count = sum(1 for cycle in cycles if cycle.get("trigger_type") == "HUMAN_RESUME")
+    gate_retry_count = loop_count - human_resume_count
     if loop_count > 0:
-        st.warning(f"Revision loop detected: {loop_count} loop event(s) in this run.", icon="🔄")
+        if gate_retry_count > 0:
+            st.warning(
+                f"Revision transitions detected: {loop_count} total ({gate_retry_count} gate retries, {human_resume_count} human resumes).",
+                icon="🔄",
+            )
+        else:
+            st.info(
+                f"Revision transitions detected: {loop_count} human resume(s) in this run.",
+                icon="🧑‍💼",
+            )
     else:
         st.success("Happy path detected: no revision loops in this run.", icon="✅")
+    st.caption(f"Latest observed revision: {current_revision}")
 
     st.markdown(
         """
@@ -282,7 +290,12 @@ def render_workflow_graph_tab(readme: dict, events: list[dict], snapshots: dict)
         if index < len(nodes) - 1:
             next_node = nodes[index + 1]
             if next_node.get("loop_entry"):
-                st.markdown('<div class="wf-arrow loop">⬇ Revision loop back to IMPLEMENTATION</div>', unsafe_allow_html=True)
+                loop_target = str(next_node.get("stage", "IMPLEMENTATION"))
+                if loop_target == "IMPLEMENTATION":
+                    arrow_text = "⬇ Revision loop back to IMPLEMENTATION"
+                else:
+                    arrow_text = f"⬇ Revision transition to {loop_target}"
+                st.markdown(f'<div class="wf-arrow loop">{arrow_text}</div>', unsafe_allow_html=True)
             else:
                 st.markdown('<div class="wf-arrow">⬇</div>', unsafe_allow_html=True)
 
@@ -330,7 +343,7 @@ def _render_human_intervention_card(artifacts: list[dict], title: str = "🧑‍
         st.info(human_guidance)
 
 
-def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]) -> None:
+def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict], snapshots: dict) -> None:
     st.markdown("### ⚙️ Real Execution")
     st.markdown("Generated code, tests, and real pytest execution for the current workflow run.")
 
@@ -338,6 +351,9 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
 
     latest_impl = latest_artifact(artifacts, "CodeImplementation", "IMPLEMENTATION")
     latest_test = latest_artifact(artifacts, "TestResult", "TEST_VALIDATION_GATE")
+    latest_revision = latest_observed_revision(artifacts, events, snapshots, readme)
+    latest_impl_revision = int(latest_impl.get("version", 0) or 0) if latest_impl else None
+    latest_test_revision = int(latest_test.get("version", 0) or 0) if latest_test else None
 
     workspace_path = (
         (latest_impl.get("meta", {}).get("workspace_path") if latest_impl else "")
@@ -355,6 +371,16 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
     c2.metric("Source Files", len(source_files))
     c3.metric("Test Files", len(test_files))
     c4.metric("pytest Result", status)
+    if latest_revision is not None:
+        st.caption(
+            " · ".join(
+                [
+                    f"Latest workflow revision: {latest_revision}",
+                    f"Latest implementation artifact: rev {latest_impl_revision}" if isinstance(latest_impl_revision, int) and latest_impl_revision > 0 else "Latest implementation artifact: —",
+                    f"Latest test artifact: rev {latest_test_revision}" if isinstance(latest_test_revision, int) and latest_test_revision > 0 else "Latest test artifact: —",
+                ]
+            )
+        )
 
     st.markdown(
         f"""
@@ -374,13 +400,7 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
 
     _render_human_intervention_card(artifacts)
 
-    lane_insights = engineer_lane_insights_by_revision(events)
-    cross_reviews = cross_review_assignments_by_revision(artifacts)
-    merge_gate = merge_conflict_gate_outcomes(artifacts)
-
-    latest_engineer_revision: int | None = None
-    if lane_insights:
-        latest_engineer_revision = max(lane_insights.keys())
+    lane_insights, cross_reviews, merge_gate, latest_engineer_revision = engineer_revision_rollup(artifacts, events)
 
     if latest_engineer_revision is not None:
         lane_rows = lane_insights.get(latest_engineer_revision, [])
@@ -666,7 +686,7 @@ def render_summary_tab(
     snapshots: dict,
 ) -> None:
     active_context = detect_active_context(artifacts, events)
-    lane_insights = engineer_lane_insights_by_revision(events)
+    lane_insights, _, _, _ = engineer_revision_rollup(artifacts, events)
     latest_lane_revision = max(lane_insights.keys()) if lane_insights else None
     latest_lane_rows = lane_insights.get(latest_lane_revision, []) if latest_lane_revision is not None else []
     engineer_lane_count = len(latest_lane_rows)
@@ -675,17 +695,13 @@ def render_summary_tab(
     problem = get_backlog_problem(artifacts)
     status = effective_workflow_status(readme, events, snapshots)
     wf_id = readme.get("workflow_id", "—")
-    revision_count = readme.get("revision_count", "—")
+    latest_revision = latest_observed_revision(artifacts, events, snapshots, readme)
+    revision_count = str(latest_revision) if latest_revision is not None else readme.get("revision_count", "—")
     n_artifacts = len([a for a in artifacts if a["md"]])
     n_events = len(events)
     approved = count_decisions(events, "APPROVED")
     changes_req = count_decisions(events, "REQUEST_CHANGES")
     pull_requests = [a for a in artifacts if a["type"] == "PullRequest"]
-    latest_revision = None
-    try:
-        latest_revision = int(revision_count)
-    except (TypeError, ValueError):
-        latest_revision = None
     latest_revision_prs = [
         a for a in pull_requests
         if latest_revision is not None and int(a.get("version", 1)) == latest_revision
@@ -778,12 +794,7 @@ def render_summary_tab(
                     status_text = f"✅ {applied}" if applied > 0 and failed == 0 else f"❌ {applied}/{failed}" if failed > 0 else "⏳"
                     st.markdown(f"<div style='background:#f0f9ff;border-left:4px solid {status_color};padding:8px;border-radius:6px'><strong>{lane_id}</strong><br><small>{lane_summary.split(lane_id)[1].strip()}</small><div style='margin-top:4px;color:{status_color};font-weight:700'>{status_text}</div></div>", unsafe_allow_html=True)
 
-    lane_insights = engineer_lane_insights_by_revision(events)
-    cross_reviews = cross_review_assignments_by_revision(artifacts)
-    merge_gate = merge_conflict_gate_outcomes(artifacts)
-
-    engineer_revisions = set(lane_insights.keys()) | set(cross_reviews.keys()) | set(merge_gate.keys())
-    latest_engineer_revision = max(engineer_revisions) if engineer_revisions else None
+    lane_insights, cross_reviews, merge_gate, latest_engineer_revision = engineer_revision_rollup(artifacts, events)
 
     if latest_engineer_revision is not None:
         with st.expander("🧑‍💻 Engineer Control Tower", expanded=False):
@@ -1070,7 +1081,8 @@ def render_sidebar(
         if isinstance(snapshot_revision, int):
             revision = snapshot_revision
         else:
-            revision = readme.get("revision_count", "—")
+            resolved_revision = latest_observed_revision(artifacts, events, snapshots, readme)
+            revision = resolved_revision if resolved_revision is not None else readme.get("revision_count", "—")
 
         st.markdown(f"**Workflow ID**")
         st.code(wf_id[:8] + "…" if len(wf_id) > 10 else wf_id, language=None)
@@ -1280,7 +1292,7 @@ def render_main(
     with tab_process:
         process_graph, process_revision = st.tabs(["Workflow Graph", "Revision Insights"])
         with process_graph:
-            render_workflow_graph_tab(readme, events, snapshots)
+            render_workflow_graph_tab(readme, artifacts, events, snapshots)
         with process_revision:
             render_revision_insights_tab(artifacts, events)
 
@@ -1292,7 +1304,7 @@ def render_main(
         ])
 
         with evidence_execution:
-            render_execution_tab(readme, artifacts, events)
+            render_execution_tab(readme, artifacts, events, snapshots)
 
         with evidence_artifacts:
             st.markdown("### 📄 Artifacts")

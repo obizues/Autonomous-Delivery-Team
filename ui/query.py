@@ -127,6 +127,60 @@ def latest_snapshot(snapshots: dict[str, list[dict]]) -> dict:
     return newest
 
 
+def observed_revisions(
+    artifacts: list[dict],
+    events: list[dict],
+    snapshots: dict[str, list[dict]],
+    readme: dict[str, str] | None = None,
+) -> list[int]:
+    revisions: set[int] = set()
+
+    for artifact in artifacts:
+        try:
+            version = int(artifact.get("version", 0) or 0)
+        except (TypeError, ValueError):
+            version = 0
+        if version > 0:
+            revisions.add(version)
+
+    for event in events:
+        payload = event.get("payload", {})
+        if not isinstance(payload, dict):
+            payload = {}
+        for key in ("revision", "new_revision", "old_revision"):
+            value = payload.get(key)
+            if isinstance(value, int) and value > 0:
+                revisions.add(value)
+
+    for stage_items in snapshots.values():
+        for item in stage_items:
+            revision = item.get("revision")
+            if isinstance(revision, int) and revision > 0:
+                revisions.add(revision)
+
+    if readme:
+        try:
+            readme_revision = int(readme.get("revision_count", "0") or 0)
+            if readme_revision > 0:
+                revisions.add(readme_revision)
+        except (TypeError, ValueError):
+            pass
+
+    return sorted(revisions)
+
+
+def latest_observed_revision(
+    artifacts: list[dict],
+    events: list[dict],
+    snapshots: dict[str, list[dict]],
+    readme: dict[str, str] | None = None,
+) -> int | None:
+    revisions = observed_revisions(artifacts, events, snapshots, readme)
+    if not revisions:
+        return None
+    return revisions[-1]
+
+
 def effective_workflow_status(
     readme: dict[str, str],
     events: list[dict[str, Any]],

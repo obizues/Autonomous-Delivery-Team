@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import cast
@@ -557,6 +558,31 @@ def process_records(records: list[dict]) -> dict:
     def _story_slice_assignment(cls, lane_index: int) -> str:
         return cls.STORY_SLICE_ASSIGNMENTS.get(lane_index, f"Auxiliary implementation slice {lane_index}")
 
+    @staticmethod
+    def _extract_lane_id_from_pr(pr: PullRequest) -> str | None:
+        match = re.search(r"\[(engineer_\d+)(?::[^\]]+)?\]", pr.title or "")
+        if match:
+            return match.group(1)
+        return None
+
+    @staticmethod
+    def _build_cross_review_matrix(lane_ids: list[str]) -> dict[str, str]:
+        ordered_ids: list[str] = []
+        for lane_id in lane_ids:
+            if lane_id not in ordered_ids:
+                ordered_ids.append(lane_id)
+
+        if not ordered_ids:
+            return {}
+        if len(ordered_ids) == 1:
+            only_lane = ordered_ids[0]
+            return {only_lane: only_lane}
+
+        matrix: dict[str, str] = {}
+        for index, lane_id in enumerate(ordered_ids):
+            matrix[lane_id] = ordered_ids[(index + 1) % len(ordered_ids)]
+        return matrix
+
     def _build_engineer_lanes(
         self,
         files_to_modify: list[str],
@@ -1104,6 +1130,24 @@ def process_records(records: list[dict]) -> dict:
             )
             pull_requests.append(pr)
 
+        lane_ids = [
+            lane_id
+            for lane_id in (self._extract_lane_id_from_pr(pr) for pr in pull_requests)
+            if lane_id
+        ]
+        cross_review_matrix = self._build_cross_review_matrix(lane_ids)
+        for pr in pull_requests:
+            lane_id = self._extract_lane_id_from_pr(pr)
+            if not lane_id:
+                continue
+            reviewer_lane = cross_review_matrix.get(lane_id)
+            if not reviewer_lane:
+                continue
+            pr.linked_review_ids = [f"{reviewer_lane}->reviews->{lane_id}"]
+            pr.description = (
+                f"{pr.description} Cross-review assignment: {lane_id} reviewed by {reviewer_lane}."
+            )
+
         if not pull_requests:
             return StageResult(decision=Decision.REQUEST_CHANGES, notes="Unable to generate lane pull requests.")
 
@@ -1124,6 +1168,12 @@ def process_records(records: list[dict]) -> dict:
             if isinstance(artifact, PullRequest) and artifact.version == revision
         ]
         pr = revision_prs[-1] if revision_prs else context.latest(PullRequest)
+        lane_ids = [
+            lane_id
+            for lane_id in (self._extract_lane_id_from_pr(lane_pr) for lane_pr in revision_prs)
+            if lane_id
+        ]
+        cross_review_matrix = self._build_cross_review_matrix(lane_ids)
 
         if pr is None:
             review = ReviewFeedback(
@@ -1178,6 +1228,12 @@ def process_records(records: list[dict]) -> dict:
                 f"- Overall Score: {overall_score:.0%}",
                 f"- Pull Requests Reviewed: {len(revision_prs) if revision_prs else (1 if pr else 0)}",
             ]
+            if cross_review_matrix:
+                comments_parts.append("- Cross-review matrix:")
+                for lane_id in sorted(cross_review_matrix.keys()):
+                    comments_parts.append(
+                        f"  - {lane_id} reviewed by {cross_review_matrix[lane_id]}"
+                    )
             
             if decision == Decision.APPROVED:
                 comments_parts.append("✓ Changes are ready for testing and acceptance review.")

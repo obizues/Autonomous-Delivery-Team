@@ -194,6 +194,11 @@ class CodeReviewAnalyzer:
 
 class EngineerAgent(Agent):
     role = "engineer"
+    ENGINEER_IDENTITIES = (
+        "alex_chen",
+        "priya_nair",
+        "marcus_reed",
+    )
 
     def __init__(
         self,
@@ -548,6 +553,12 @@ def process_records(records: list[dict]) -> dict:
             return ["src/pipeline.py"]
         return []
 
+    @classmethod
+    def _lane_identity(cls, lane_index: int) -> str:
+        if 1 <= lane_index <= len(cls.ENGINEER_IDENTITIES):
+            return cls.ENGINEER_IDENTITIES[lane_index - 1]
+        return f"engineer_{lane_index}"
+
     def _build_engineer_lanes(
         self,
         files_to_modify: list[str],
@@ -561,7 +572,7 @@ def process_records(records: list[dict]) -> dict:
         source_targets = sorted(set(source_targets + required_targets))
 
         if not source_targets:
-            return [{"lane_id": "engineer_1", "files": []}]
+            return [{"lane_id": self._lane_identity(1), "files": []}]
 
         # Calculate complexity and get optimal lane count
         complexity = self._calculate_complexity(backlog_text, source_targets, target_symbols)
@@ -579,10 +590,10 @@ def process_records(records: list[dict]) -> dict:
             if not bucket:
                 continue
             lanes.append({
-                "lane_id": f"engineer_{index}",
+                "lane_id": self._lane_identity(index),
                 "files": sorted(bucket),
             })
-        return lanes or [{"lane_id": "engineer_1", "files": source_targets}]
+        return lanes or [{"lane_id": self._lane_identity(1), "files": source_targets}]
 
     @staticmethod
     def _create_lane_workspace(sandbox_path: Path, revision: int, lane_id: str) -> Path:
@@ -1052,7 +1063,7 @@ def process_records(records: list[dict]) -> dict:
         for lane_index, lane_files in enumerate(lane_buckets, start=1):
             if not lane_files:
                 continue
-            lane_id = f"engineer_{lane_index}"
+            lane_id = self._lane_identity(lane_index)
             pr = PullRequest(
                 workflow_id=workflow_id,
                 stage=state.current_stage,

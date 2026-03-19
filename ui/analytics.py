@@ -200,6 +200,75 @@ def merge_conflict_gate_outcomes(artifacts: list[dict]) -> dict[int, dict[str, A
     return outcomes
 
 
+def quality_trends_by_revision(artifacts: list[dict]) -> list[dict[str, Any]]:
+    by_stage = artifacts_by_stage(artifacts)
+    revisions = sorted({int(a.get("version", 0) or 0) for a in artifacts if int(a.get("version", 0) or 0) > 0})
+    rows: list[dict[str, Any]] = []
+
+    def _score_from_comments(comments: str, label_pattern: str) -> float | None:
+        match = re.search(label_pattern, comments)
+        if not match:
+            return None
+        try:
+            return float(match.group(1))
+        except Exception:
+            return None
+
+    for revision in revisions:
+        peer_feedback = first_artifact(artifacts, "PEER_CODE_REVIEW_GATE", revision, "ReviewFeedback")
+        arch_feedback = first_artifact(artifacts, "ARCHITECTURE_REVIEW_GATE", revision, "ReviewFeedback")
+        merge_feedback = first_artifact(artifacts, "MERGE_CONFLICT_GATE", revision, "ReviewFeedback")
+        test_result = first_artifact(artifacts, "TEST_VALIDATION_GATE", revision, "TestResult")
+
+        peer_score = None
+        peer_decision = ""
+        if peer_feedback:
+            peer_meta = peer_feedback.get("meta", {})
+            peer_decision = str(peer_meta.get("decision", ""))
+            peer_score = _score_from_comments(str(peer_meta.get("comments", "")), r"Overall Score:\s*(\d+)%")
+
+        arch_score = None
+        arch_decision = ""
+        if arch_feedback:
+            arch_meta = arch_feedback.get("meta", {})
+            arch_decision = str(arch_meta.get("decision", ""))
+            arch_score = _score_from_comments(
+                str(arch_meta.get("comments", "")),
+                r"Overall Architecture Score:\s*(\d+)%",
+            )
+
+        failed_tests = None
+        test_status = ""
+        if test_result:
+            test_meta = test_result.get("meta", {})
+            failed_tests = int(test_meta.get("failed_cases", 0) or 0)
+            passed = bool(test_meta.get("passed", False))
+            test_status = "PASSED" if passed else "FAILED"
+
+        merge_decision = ""
+        merge_issue_count = 0
+        if merge_feedback:
+            merge_meta = merge_feedback.get("meta", {})
+            merge_decision = str(merge_meta.get("decision", ""))
+            merge_issue_count = len(merge_meta.get("issues_identified", []) or [])
+
+        rows.append(
+            {
+                "revision": revision,
+                "peer_score_pct": peer_score,
+                "peer_decision": peer_decision,
+                "arch_score_pct": arch_score,
+                "arch_decision": arch_decision,
+                "failed_tests": failed_tests,
+                "test_status": test_status,
+                "merge_issues": merge_issue_count,
+                "merge_decision": merge_decision,
+            }
+        )
+
+    return rows
+
+
 def build_graph_nodes(events: list[dict]) -> list[dict]:
     transitions = [
         e for e in events

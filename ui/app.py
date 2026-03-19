@@ -31,6 +31,7 @@ from analytics import (
     merge_conflict_gate_outcomes,
     patch_events_by_revision,
     planner_insights_by_revision,
+    quality_trends_by_revision,
 )
 from config import (
     ARTIFACT_TYPE_LABELS,
@@ -496,6 +497,28 @@ def render_revision_insights_tab(artifacts: list[dict], events: list[dict]) -> N
     st.markdown(
         "Advanced diagnostics: where revision loops happened, why they were triggered, and what changed in the next revision."
     )
+    st.caption("Diagnostic = explanatory context for iteration behavior; use this to tune agents/policies, not just to confirm pass/fail.")
+
+    trend_rows = quality_trends_by_revision(artifacts)
+    if trend_rows:
+        st.markdown("#### 📈 Quality Trends by Revision")
+        st.dataframe(
+            trend_rows,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "revision": "Revision",
+                "peer_score_pct": st.column_config.NumberColumn("Peer Score %", format="%d"),
+                "peer_decision": "Peer Decision",
+                "arch_score_pct": st.column_config.NumberColumn("Architecture Score %", format="%d"),
+                "arch_decision": "Architecture Decision",
+                "failed_tests": "Failed Tests",
+                "test_status": "Test Status",
+                "merge_issues": "Merge Issues",
+                "merge_decision": "Merge Decision",
+            },
+        )
+        st.caption("Goal: scores trend up, failed test counts trend down, and gate decisions converge to APPROVED.")
 
     cycles = detect_revision_cycles(events)
     plan_by_revision = planner_insights_by_revision(events)

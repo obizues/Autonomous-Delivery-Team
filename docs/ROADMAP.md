@@ -3,6 +3,7 @@
 ## Current Release
 
 - `v0.2.0` baseline established with escalation decision telemetry and hardened review gates.
+- v0.3 planning checklist: `V0_3_AUTONOMY_HARDENING_CHECKLIST.md`
 
 ## Next Planned Items
 

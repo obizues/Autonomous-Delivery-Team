@@ -28,6 +28,21 @@ python scripts/demo_resume_e2e.py
 
 Expected terminal output includes `resume_e2e: PASSED`.
 
+## Requirements Traceability
+
+Use this quick matrix to map requirement areas from `docs/REQUIREMENTS.md` to operational verification points.
+
+| Requirement Area | Verification Path |
+| --- | --- |
+| Workflow orchestration | Run `python -m ai_software_factory`; verify stage progression and decisions in `demo_output/latest/events.jsonl`. |
+| Parallel engineer execution | Run `python -m ai_software_factory`; verify lane assignments, cross-review mapping, and lane outcomes in `demo_output/latest/artifacts/` and dashboard Process view. |
+| Review and governance gates | Run `python scripts/demo_acceptance.py`; verify gate decisions and revision loops in terminal output and `events.jsonl`. |
+| Merge conflict gate behavior | Run `python scripts/demo_acceptance.py`; confirm merge gate outcomes are present in artifacts/events and no unresolved conflict markers pass through. |
+| Escalation and resume controls | Run `python scripts/demo_escalation.py` then `python scripts/demo_resume_e2e.py`; verify `ESCALATION_RAISED`, `HUMAN_FEEDBACK_RECORDED`, `WORKFLOW_RESUMED`, `REVISION_STARTED`. |
+| Dashboard observability | Run `python ui/launcher.py`; verify latest run loads and engineer-lane/cross-review visibility is present. |
+| Persistence and artifact integrity | Run with `ASF_PERSISTENCE_BACKEND=sqlite`; verify state in `ASF_SQLITE_PATH` and artifacts in `demo_output/latest`. |
+| Release acceptance baseline | Confirm `python scripts/demo_acceptance.py` and `python scripts/demo_resume_e2e.py` both pass. |
+
 ## Troubleshooting
 
 ### Dashboard won’t load

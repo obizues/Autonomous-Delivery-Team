@@ -175,9 +175,6 @@ def render_workflow_graph_tab(readme: dict, artifacts: list[dict], events: list[
         "Visual path of the current run, including review decisions and revision loops."
     )
 
-    # Surface latest human escalation decision in process view for traceability
-    _render_human_intervention_card(artifacts)
-
     nodes = build_graph_nodes(events)
     if not nodes:
         st.info("No transition data found yet. Run the workflow to generate graph data.")
@@ -398,8 +395,6 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
 
     st.markdown(f"**Generated workspace path:** {workspace_path}")
 
-    _render_human_intervention_card(artifacts)
-
     lane_insights, cross_reviews, merge_gate, latest_engineer_revision = engineer_revision_rollup(artifacts, events)
 
     if latest_engineer_revision is not None:
@@ -514,12 +509,15 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
                         st.markdown("- No confidence scores recorded")
 
 
-def render_revision_insights_tab(artifacts: list[dict], events: list[dict]) -> None:
+def render_revision_insights_tab(readme: dict, artifacts: list[dict], events: list[dict], snapshots: dict) -> None:
     st.markdown("### 🔄 Revision Insights")
     st.markdown(
         "Advanced diagnostics: where revision loops happened, why they were triggered, and what changed in the next revision."
     )
     st.caption("Diagnostic = explanatory context for iteration behavior; use this to tune agents/policies, not just to confirm pass/fail.")
+    latest_revision = latest_observed_revision(artifacts, events, snapshots, readme)
+    if latest_revision is not None:
+        st.caption(f"Latest observed revision: {latest_revision}")
 
     trend_rows = quality_trends_by_revision(artifacts)
     if trend_rows:
@@ -1051,9 +1049,6 @@ def render_summary_tab(
     else:
         st.warning(f"Workflow status: {status}")
 
-    _render_human_intervention_card(artifacts, title="🧑‍💼 Escalation Decision (Latest)")
-
-
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
 
@@ -1292,7 +1287,7 @@ def render_main(
         with process_graph:
             render_workflow_graph_tab(readme, artifacts, events, snapshots)
         with process_revision:
-            render_revision_insights_tab(artifacts, events)
+            render_revision_insights_tab(readme, artifacts, events, snapshots)
 
     with tab_evidence:
         evidence_execution, evidence_artifacts, evidence_events = st.tabs([

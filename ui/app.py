@@ -815,7 +815,7 @@ def render_summary_tab(
                     for suggestion in suggestions:
                         st.markdown(f"- {suggestion}")
 
-    with st.expander("Show detailed stage timeline", expanded=False):
+    with st.expander("🧭 Show Detailed Stage Timeline", expanded=False):
         timeline = build_stage_timeline(artifacts, events, snapshots)
         for row in timeline:
             if row.get("stage") == "DONE":
@@ -1040,7 +1040,12 @@ def render_sidebar(
         # Workflow metadata
         wf_id = readme.get("workflow_id", "—")
         status = effective_workflow_status(readme, events, snapshots)
-        revision = readme.get("revision_count", "—")
+        latest_state = latest_snapshot(snapshots)
+        snapshot_revision = latest_state.get("revision") if isinstance(latest_state, dict) else None
+        if isinstance(snapshot_revision, int):
+            revision = snapshot_revision
+        else:
+            revision = readme.get("revision_count", "—")
 
         st.markdown(f"**Workflow ID**")
         st.code(wf_id[:8] + "…" if len(wf_id) > 10 else wf_id, language=None)
@@ -1055,6 +1060,22 @@ def render_sidebar(
             escalation_reason = latest_escalation_reason(events)
             if escalation_reason:
                 st.caption(escalation_reason)
+
+            latest_rejection_gate = None
+            latest_rejection_revision = None
+            for event in reversed(events):
+                if event.get("event_type") != "DECISION_MADE":
+                    continue
+                payload = event.get("payload", {})
+                if payload.get("decision") != "REQUEST_CHANGES":
+                    continue
+                latest_rejection_gate = str(event.get("stage", ""))
+                latest_rejection_revision = payload.get("revision")
+                break
+            if latest_rejection_gate:
+                _, gate_label, _ = STAGE_META.get(latest_rejection_gate, ("•", latest_rejection_gate, ""))
+                rev_suffix = f" (rev {latest_rejection_revision})" if isinstance(latest_rejection_revision, int) else ""
+                st.caption(f"Latest rejection source: {gate_label}{rev_suffix}")
 
             response_templates = {
                 "Target failing tests only": "Resume from implementation and only change code paths linked to currently failing tests. Avoid unrelated refactors.",

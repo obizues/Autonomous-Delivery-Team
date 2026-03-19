@@ -21,11 +21,14 @@ from analytics import (
     artifact_highlights,
     build_graph_nodes,
     build_stage_timeline,
+    cross_review_assignments_by_revision,
     detect_revision_cycles,
+    engineer_lane_insights_by_revision,
     extract_key_decisions,
     extract_key_issues,
     infer_cycle_reason,
     infer_next_revision_changes,
+    merge_conflict_gate_outcomes,
     patch_events_by_revision,
     planner_insights_by_revision,
 )
@@ -321,20 +324,46 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
 
     st.markdown(f"**Generated workspace path:** {workspace_path}")
 
-    lane_summaries: list[str] = []
-    for event in reversed(events):
-        if event.get("event_type") != "FILES_MODIFIED":
-            continue
-        payload = event.get("payload", {})
-        lane_values = payload.get("engineer_lanes", [])
-        if isinstance(lane_values, list):
-            lane_summaries = [str(item) for item in lane_values]
-        break
+    lane_insights = engineer_lane_insights_by_revision(events)
+    cross_reviews = cross_review_assignments_by_revision(artifacts)
+    merge_gate = merge_conflict_gate_outcomes(artifacts)
 
-    if lane_summaries:
-        st.markdown("**Parallel engineer lanes**")
-        for lane in lane_summaries:
-            st.markdown(f"- {lane}")
+    latest_engineer_revision: int | None = None
+    if lane_insights:
+        latest_engineer_revision = max(lane_insights.keys())
+
+    if latest_engineer_revision is not None:
+        lane_rows = lane_insights.get(latest_engineer_revision, [])
+        review_lookup = {
+            row["lane_id"]: row.get("reviewed_by", "—")
+            for row in cross_reviews.get(latest_engineer_revision, [])
+        }
+        st.markdown(f"#### 👷 Engineer Lanes · Revision {latest_engineer_revision}")
+        for row in lane_rows:
+            lane_id = str(row.get("lane_id", "unknown"))
+            story_slice = str(row.get("story_slice", "Unspecified slice"))
+            files = row.get("files", [])
+            applied = int(row.get("applied", 0) or 0)
+            failed = int(row.get("failed", 0) or 0)
+            reviewed_by = review_lookup.get(lane_id, "—")
+            status = "✅" if failed == 0 else "❌"
+            st.markdown(
+                f"- **{lane_id}** · slice: {story_slice} · reviewed by `{reviewed_by}` · {status} applied={applied} failed={failed}"
+            )
+            st.caption(
+                "Files: " + (", ".join(str(file_name) for file_name in files) if files else "(none)")
+            )
+
+        merge_outcome = merge_gate.get(latest_engineer_revision)
+        if merge_outcome:
+            decision = str(merge_outcome.get("decision", ""))
+            reviewer = str(merge_outcome.get("reviewer", "merge_conflict_guard"))
+            if decision == "APPROVED":
+                st.success(f"Merge Conflict Gate: APPROVED by {reviewer}")
+            elif decision == "REQUEST_CHANGES":
+                st.error(f"Merge Conflict Gate: REQUEST_CHANGES by {reviewer}")
+            else:
+                st.info(f"Merge Conflict Gate decision: {decision or 'UNKNOWN'}")
 
     st.divider()
     left, right = st.columns(2)
@@ -629,6 +658,68 @@ def render_summary_tab(
                     status_color = "#4ade80" if applied > 0 and failed == 0 else "#f87171" if failed > 0 else "#60a5fa"
                     status_text = f"✅ {applied}" if applied > 0 and failed == 0 else f"❌ {applied}/{failed}" if failed > 0 else "⏳"
                     st.markdown(f"<div style='background:#f0f9ff;border-left:4px solid {status_color};padding:8px;border-radius:6px'><strong>{lane_id}</strong><br><small>{lane_summary.split(lane_id)[1].strip()}</small><div style='margin-top:4px;color:{status_color};font-weight:700'>{status_text}</div></div>", unsafe_allow_html=True)
+
+    lane_insights = engineer_lane_insights_by_revision(events)
+    cross_reviews = cross_review_assignments_by_revision(artifacts)
+    merge_gate = merge_conflict_gate_outcomes(artifacts)
+
+    engineer_revisions = set(lane_insights.keys()) | set(cross_reviews.keys()) | set(merge_gate.keys())
+    latest_engineer_revision = max(engineer_revisions) if engineer_revisions else None
+
+    if latest_engineer_revision is not None:
+        with st.expander("🧑‍💻 Engineer Control Tower", expanded=False):
+            lane_rows = lane_insights.get(latest_engineer_revision, [])
+            review_rows = cross_reviews.get(latest_engineer_revision, [])
+            review_lookup = {row["lane_id"]: row.get("reviewed_by", "—") for row in review_rows}
+
+            total_files = sum(len(row.get("files", [])) for row in lane_rows)
+            total_applied = sum(int(row.get("applied", 0) or 0) for row in lane_rows)
+            total_failed = sum(int(row.get("failed", 0) or 0) for row in lane_rows)
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Revision", latest_engineer_revision)
+            m2.metric("Engineer Lanes", len(lane_rows))
+            m3.metric("Files Assigned", total_files)
+            m4.metric("Patch Outcome", f"{total_applied}/{total_failed}")
+
+            if lane_rows:
+                st.markdown("**Lane ownership and review routing**")
+                for row in lane_rows:
+                    lane_id = str(row.get("lane_id", "unknown"))
+                    story_slice = str(row.get("story_slice", "Unspecified slice"))
+                    reviewed_by = review_lookup.get(lane_id, "—")
+                    files = row.get("files", [])
+                    st.markdown(f"- **{lane_id}** · {story_slice} · reviewed by `{reviewed_by}`")
+                    st.caption(
+                        "Files: " + (", ".join(str(file_name) for file_name in files) if files else "(none)")
+                    )
+
+            if review_rows:
+                st.markdown("**Cross-review matrix**")
+                for row in review_rows:
+                    st.markdown(f"- `{row['reviewed_by']}` reviews `{row['lane_id']}`")
+
+            merge_outcome = merge_gate.get(latest_engineer_revision)
+            if merge_outcome:
+                decision = str(merge_outcome.get("decision", ""))
+                reviewer = str(merge_outcome.get("reviewer", "merge_conflict_guard"))
+                if decision == "APPROVED":
+                    st.success(f"Merge Conflict Gate: APPROVED by {reviewer}")
+                elif decision == "REQUEST_CHANGES":
+                    st.error(f"Merge Conflict Gate: REQUEST_CHANGES by {reviewer}")
+                else:
+                    st.info(f"Merge Conflict Gate decision: {decision or 'UNKNOWN'}")
+
+                issues = merge_outcome.get("issues", [])
+                suggestions = merge_outcome.get("suggestions", [])
+                if issues:
+                    st.markdown("**Conflict findings**")
+                    for issue in issues:
+                        st.markdown(f"- {issue}")
+                if suggestions:
+                    st.markdown("**Recommended fixes**")
+                    for suggestion in suggestions:
+                        st.markdown(f"- {suggestion}")
 
     with st.expander("Show detailed stage timeline", expanded=False):
         timeline = build_stage_timeline(artifacts, events, snapshots)

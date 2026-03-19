@@ -4,6 +4,8 @@ No Streamlit imports — results are consumed by render functions in app.py.
 """
 from __future__ import annotations
 
+import ast
+import re
 from collections import defaultdict
 from typing import Any
 
@@ -58,6 +60,144 @@ def patch_events_by_revision(events: list[dict]) -> dict[int, list[dict]]:
             "message":    payload.get("message", ""),
         })
     return dict(grouped)
+
+
+def engineer_lane_insights_by_revision(events: list[dict]) -> dict[int, list[dict]]:
+    grouped: dict[int, list[dict]] = {}
+
+    for event in events:
+        if event.get("event_type") != "FILES_MODIFIED":
+            continue
+        payload = event.get("payload", {})
+        revision = payload.get("revision")
+        if not isinstance(revision, int):
+            continue
+
+        lane_rows: dict[str, dict[str, Any]] = {}
+
+        assignments = payload.get("engineer_lane_assignments", [])
+        if isinstance(assignments, list):
+            for item in assignments:
+                if not isinstance(item, dict):
+                    continue
+                lane_id = str(item.get("lane_id", "")).strip()
+                if not lane_id:
+                    continue
+                files = item.get("files", [])
+                lane_rows[lane_id] = {
+                    "lane_id": lane_id,
+                    "story_slice": str(item.get("story_slice", "Unspecified slice")),
+                    "files": [str(file_name) for file_name in files] if isinstance(files, list) else [],
+                    "applied": 0,
+                    "failed": 0,
+                }
+
+        summaries = payload.get("engineer_lanes", [])
+        if isinstance(summaries, list):
+            for summary in summaries:
+                text = str(summary)
+                lane_match = re.search(r"^(engineer_\d+)\b", text)
+                if not lane_match:
+                    continue
+                lane_id = lane_match.group(1)
+                row = lane_rows.setdefault(
+                    lane_id,
+                    {
+                        "lane_id": lane_id,
+                        "story_slice": "Unspecified slice",
+                        "files": [],
+                        "applied": 0,
+                        "failed": 0,
+                    },
+                )
+
+                slice_match = re.search(r"slice=(.+?)\s+files=", text)
+                if slice_match:
+                    row["story_slice"] = slice_match.group(1).strip()
+
+                files_match = re.search(r"files=(.+?)\s+applied=", text)
+                if files_match:
+                    try:
+                        parsed_files = ast.literal_eval(files_match.group(1).strip())
+                        if isinstance(parsed_files, list):
+                            row["files"] = [str(file_name) for file_name in parsed_files]
+                    except Exception:
+                        pass
+
+                applied_match = re.search(r"applied=(\d+)", text)
+                failed_match = re.search(r"failed=(\d+)", text)
+                if applied_match:
+                    row["applied"] = int(applied_match.group(1))
+                if failed_match:
+                    row["failed"] = int(failed_match.group(1))
+
+        grouped[revision] = sorted(
+            lane_rows.values(),
+            key=lambda row: int(str(row["lane_id"]).split("_")[-1]) if str(row["lane_id"]).split("_")[-1].isdigit() else 999,
+        )
+
+    return grouped
+
+
+def cross_review_assignments_by_revision(artifacts: list[dict]) -> dict[int, list[dict]]:
+    grouped: dict[int, list[dict]] = defaultdict(list)
+
+    for artifact in artifacts:
+        if artifact.get("type") != "PullRequest":
+            continue
+        revision = int(artifact.get("version", 1) or 1)
+        meta = artifact.get("meta", {})
+        title = str(meta.get("title", ""))
+
+        lane_match = re.search(r"\[(engineer_\d+)(?::\s*([^\]]+))?\]", title)
+        if not lane_match:
+            continue
+        lane_id = lane_match.group(1)
+        story_slice = lane_match.group(2).strip() if lane_match.group(2) else "Unspecified slice"
+
+        reviewed_by = "—"
+        linked_ids = meta.get("linked_review_ids", [])
+        if isinstance(linked_ids, list):
+            for item in linked_ids:
+                text = str(item)
+                review_match = re.search(r"(engineer_\d+)->reviews->(engineer_\d+)", text)
+                if review_match and review_match.group(2) == lane_id:
+                    reviewed_by = review_match.group(1)
+                    break
+
+        grouped[revision].append(
+            {
+                "lane_id": lane_id,
+                "reviewed_by": reviewed_by,
+                "story_slice": story_slice,
+                "files": [str(file_name) for file_name in meta.get("files_modified", []) if isinstance(file_name, str)],
+            }
+        )
+
+    result: dict[int, list[dict]] = {}
+    for revision, rows in grouped.items():
+        result[revision] = sorted(
+            rows,
+            key=lambda row: int(str(row["lane_id"]).split("_")[-1]) if str(row["lane_id"]).split("_")[-1].isdigit() else 999,
+        )
+    return result
+
+
+def merge_conflict_gate_outcomes(artifacts: list[dict]) -> dict[int, dict[str, Any]]:
+    outcomes: dict[int, dict[str, Any]] = {}
+    for artifact in artifacts:
+        if artifact.get("stage") != "MERGE_CONFLICT_GATE" or artifact.get("type") != "ReviewFeedback":
+            continue
+        revision = int(artifact.get("version", 1) or 1)
+        meta = artifact.get("meta", {})
+        outcomes[revision] = {
+            "decision": str(meta.get("decision", "")),
+            "reviewer": str(meta.get("reviewer", artifact.get("created_by", ""))),
+            "comments": str(meta.get("comments", "")),
+            "issues": [str(item) for item in meta.get("issues_identified", []) if isinstance(item, str)],
+            "suggestions": [str(item) for item in meta.get("suggested_changes", []) if isinstance(item, str)],
+        }
+    return outcomes
 
 
 def build_graph_nodes(events: list[dict]) -> list[dict]:

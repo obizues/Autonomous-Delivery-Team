@@ -321,7 +321,9 @@ def _render_human_intervention_card(artifacts: list[dict], title: str = "🧑‍
     m1, m2, m3 = st.columns(3)
     m1.metric("Responder", responder)
     m2.metric("Resume Stage", resume_stage)
-    m3.metric("Max Rejections", max_rejections)
+    m3.metric("Max Rejections (est.)", max_rejections)
+    if isinstance(resume_max_steps, int):
+        st.caption(f"Step budget: {resume_max_steps} transitions (estimated from rejection runway policy).")
     if response_template:
         st.markdown(f"**Response Template:** {response_template}")
     if human_guidance:

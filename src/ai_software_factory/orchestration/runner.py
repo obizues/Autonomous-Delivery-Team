@@ -15,6 +15,7 @@ from ai_software_factory.execution.test_runner import PytestRunner
 from ai_software_factory.events.bus import EventBus
 from ai_software_factory.governance.approvals import ApprovalService
 from ai_software_factory.governance.escalations import EscalationService
+from ai_software_factory.llm import LLMCodeGenerator
 from ai_software_factory.persistence.artifact_store import InMemoryArtifactStore, SQLiteArtifactStore
 from ai_software_factory.persistence.state_store import InMemoryStateStore, SQLiteStateStore
 from ai_software_factory.planning.repo_change_planner import RepoChangePlanner
@@ -147,6 +148,7 @@ def create_engine(
             planner=planner,
             patch_engine=patch_engine,
             event_bus=event_bus,
+            llm_generator=LLMCodeGenerator(),
         ),
         "test_engineer": TestEngineerAgent(
             patch_engine=patch_engine,

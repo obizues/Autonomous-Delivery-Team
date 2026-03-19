@@ -43,7 +43,7 @@ TEST_VALIDATION_GATE → PRODUCT_ACCEPTANCE_GATE → DONE
 ## 🚀 Key Features
 
 ### 1. Parallel Engineer Lanes
-During IMPLEMENTATION, work is decomposed into up to 3 parallel lanes:
+During IMPLEMENTATION, work is decomposed into dynamic parallel lanes (1-5 based on complexity):
 - Each lane gets assigned files from the change plan
 - Lanes execute in isolated workspaces simultaneously
 - Results are integrated back to shared sandbox
@@ -87,8 +87,27 @@ During IMPLEMENTATION, work is decomposed into up to 3 parallel lanes:
 | **Product Owner** | Backlog, Product Definition, Product Acceptance | Deterministic approvals per repo profile |
 | **Business Analyst** | Requirements Analysis | Semantic signal extraction |
 | **Architect** | Architecture Design, Architecture Review | Design validation |
-| **Engineer** | Implementation, PR Creation, Peer Review | Code generation via seeded patches |
+| **Engineer** | Implementation, PR Creation, Peer Review | Hybrid generation: LLM-first with deterministic fallback |
 | **Test Engineer** | Test Validation | Test execution and failure parsing |
+
+### 6. Optional LLM Code Generation (Safe Fallback)
+
+- Configure LLM via environment variables for code generation during implementation
+- If LLM is unavailable or generation fails, deterministic profile patches are applied
+- Existing acceptance scenarios continue to run without LLM configuration
+
+```bash
+# Optional LLM configuration
+set LLM_API_KEY=your_api_key_here
+set LLM_API_PROVIDER=openai
+set LLM_MODEL=gpt-4
+```
+
+```bash
+# Anthropic example
+set LLM_API_PROVIDER=anthropic
+set LLM_MODEL=claude-3-opus-20240229
+```
 
 ### 5. Repository Profiles
 Three demo repos with scripted patch strategies:
@@ -221,19 +240,18 @@ DONE (all artifacts, final_status=COMPLETED)
 ## 🚦 Future Enhancements
 
 ### Short-term
-- [ ] Multi-PR support: 3 separate engineers → 3 separate PRs → parallel review gates
-- [ ] Dynamic lane count: Based on backlog complexity
-- [ ] Cross-engineer peer review logic: Engineer B reviews Engineer A's code
+- [ ] Real repository integration: Clone actual repos, run real patch logic
+- [ ] Human-in-the-loop escalation handling: Accept feedback and resume workflow
 
 ### Medium-term
 - [ ] True parallel agent tracks: Each engineer independently progresses through pipeline
-- [ ] LLM-based agents: Replace deterministic behavior with actual AI inference
-- [ ] Persistent storage: Migrate from in-memory to SQL/document DB
+- [ ] Extend LLM usage to additional agents (Architect/BA/ProductOwner)
+- [ ] Persistent storage hardening: indexes, replay tooling, and migration strategy
 
 ### Long-term
-- [ ] Real repository integration: Clone actual repos, run real patch logic
 - [ ] Distributed execution: Multiple machines running engineer lanes
-- [ ] Human-in-the-loop: Accept escalations, provide feedback, resume workflows
+- [ ] Policy-driven governance and compliance checks
+- [ ] Multi-tenant orchestration and workspace isolation
 
 ## 📝 License
 

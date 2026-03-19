@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
+from typing import cast
 
 from ai_software_factory.agents.base import Agent, AgentContext
 from ai_software_factory.domain.enums import ArtifactStatus, Decision, EventType, WorkflowStage
-from ai_software_factory.domain.models import BacklogItem, CodeImplementation, PullRequest, ReviewFeedback, TestResult
+from ai_software_factory.domain.models import BaseArtifact, BacklogItem, CodeImplementation, PullRequest, ReviewFeedback, TestResult
 from ai_software_factory.events.bus import EventBus
 from ai_software_factory.execution.file_patch_engine import FilePatchEngine
 from ai_software_factory.execution.repo_workspace import RepoWorkspaceManager
+from ai_software_factory.llm import LLMCodeGenerator
 from ai_software_factory.planning.repo_change_planner import RepoChangePlanner
 from ai_software_factory.tools.repo_tools import list_repo_files, search_repo
 from ai_software_factory.workflow.stage_result import StageResult
+
+logger = logging.getLogger(__name__)
 
 
 class CodeReviewAnalyzer:
@@ -196,11 +201,13 @@ class EngineerAgent(Agent):
         planner: RepoChangePlanner,
         patch_engine: FilePatchEngine,
         event_bus: EventBus,
+        llm_generator: LLMCodeGenerator | None = None,
     ) -> None:
         self.repo_workspace = repo_workspace
         self.planner = planner
         self.patch_engine = patch_engine
         self.event_bus = event_bus
+        self.llm_generator = llm_generator or LLMCodeGenerator()
 
     @staticmethod
     def _detect_repo_profile(sandbox_path: str) -> str:
@@ -619,13 +626,45 @@ def process_records(records: list[dict]) -> dict:
                     patch_results.append(self.patch_engine.apply_patch(validator_path, self._validator_module()))
 
                 if should_patch("src/upload_service.py"):
-                    replaced = self.patch_engine.replace_function(
-                        file_path=upload_path,
-                        function_name="upload_document",
-                        new_function_code=self._upload_document_revision_2(),
-                    )
-                    patch_results.append(replaced)
-                    if not replaced.success:
+                    # Try LLM-based fix first (revision > 1), fall back to deterministic
+                    if upload_path.exists():
+                        source = upload_path.read_text(encoding="utf-8")
+                        llm_response = self.llm_generator.generate_function_replacement(
+                            source_code=source,
+                            function_name="upload_document",
+                            objective="Fix upload_document to handle edge cases and validate properly. Include error field in responses.",
+                            file_path="src/upload_service.py",
+                        )
+                        if llm_response.success and llm_response.generated_code:
+                            logger.info(f"Using LLM-generated upload_document (model: {llm_response.model_used})")
+                            replaced = self.patch_engine.replace_function(
+                                file_path=upload_path,
+                                function_name="upload_document",
+                                new_function_code=llm_response.generated_code,
+                            )
+                            patch_results.append(replaced)
+                            if not replaced.success:
+                                logger.warning("LLM-generated function failed validation, falling back to deterministic patch")
+                                replaced = self.patch_engine.replace_function(
+                                    file_path=upload_path,
+                                    function_name="upload_document",
+                                    new_function_code=self._upload_document_revision_2(),
+                                )
+                                patch_results.append(replaced)
+                        else:
+                            # LLM unavailable or failed, use deterministic
+                            if not llm_response.success:
+                                logger.debug(f"LLM generation skipped for upload_document: {llm_response.error_message}")
+                            replaced = self.patch_engine.replace_function(
+                                file_path=upload_path,
+                                function_name="upload_document",
+                                new_function_code=self._upload_document_revision_2(),
+                            )
+                            patch_results.append(replaced)
+                            if not replaced.success:
+                                patch_results.append(self.patch_engine.apply_patch(upload_path, self._upload_service_module_fixed()))
+                    else:
+                        # File doesn't exist, use full module patch
                         patch_results.append(self.patch_engine.apply_patch(upload_path, self._upload_service_module_fixed()))
 
         elif repo_profile == "auth":
@@ -633,16 +672,67 @@ def process_records(records: list[dict]) -> dict:
                 if revision == 1:
                     patch_results.append(self.patch_engine.apply_patch(auth_path, self._auth_service_module_revision_1()))
                 else:
-                    patch_results.append(self.patch_engine.apply_patch(auth_path, self._auth_service_module_revision_2()))
+                    # Try LLM-based fix first (revision > 1), fall back to deterministic
+                    if auth_path.exists():
+                        source = auth_path.read_text(encoding="utf-8")
+                        llm_response = self.llm_generator.generate_function_replacement(
+                            source_code=source,
+                            function_name="login",
+                            objective="Fix login function to properly enforce account lockout after 2 failed attempts (not 3). Prevent timing attacks.",
+                            file_path="src/auth_service.py",
+                        )
+                        if llm_response.success and llm_response.generated_code:
+                            logger.info(f"Using LLM-generated login function (model: {llm_response.model_used})")
+                            replaced = self.patch_engine.replace_function(
+                                file_path=auth_path,
+                                function_name="login",
+                                new_function_code=llm_response.generated_code,
+                            )
+                            patch_results.append(replaced)
+                            if not replaced.success:
+                                logger.warning("LLM-generated function failed validation, falling back to deterministic patch")
+                                patch_results.append(self.patch_engine.apply_patch(auth_path, self._auth_service_module_revision_2()))
+                        else:
+                            if not llm_response.success:
+                                logger.debug(f"LLM generation skipped for login: {llm_response.error_message}")
+                            patch_results.append(self.patch_engine.apply_patch(auth_path, self._auth_service_module_revision_2()))
+                    else:
+                        patch_results.append(self.patch_engine.apply_patch(auth_path, self._auth_service_module_revision_2()))
 
         elif repo_profile == "pipeline":
             if should_patch("src/pipeline.py"):
                 if revision == 1:
                     patch_results.append(self.patch_engine.apply_patch(pipeline_path, self._pipeline_module_revision_1()))
                 else:
-                    patch_results.append(self.patch_engine.apply_patch(pipeline_path, self._pipeline_module_revision_2()))
+                    # Try LLM-based fix first (revision > 1), fall back to deterministic
+                    if pipeline_path.exists():
+                        source = pipeline_path.read_text(encoding="utf-8")
+                        llm_response = self.llm_generator.generate_function_replacement(
+                            source_code=source,
+                            function_name="process_records",
+                            objective="Ensure process_records properly validates records and handles duplicate IDs correctly. Return proper counts.",
+                            file_path="src/pipeline.py",
+                        )
+                        if llm_response.success and llm_response.generated_code:
+                            logger.info(f"Using LLM-generated process_records (model: {llm_response.model_used})")
+                            replaced = self.patch_engine.replace_function(
+                                file_path=pipeline_path,
+                                function_name="process_records",
+                                new_function_code=llm_response.generated_code,
+                            )
+                            patch_results.append(replaced)
+                            if not replaced.success:
+                                logger.warning("LLM-generated function failed validation, falling back to deterministic patch")
+                                patch_results.append(self.patch_engine.apply_patch(pipeline_path, self._pipeline_module_revision_2()))
+                        else:
+                            if not llm_response.success:
+                                logger.debug(f"LLM generation skipped for process_records: {llm_response.error_message}")
+                            patch_results.append(self.patch_engine.apply_patch(pipeline_path, self._pipeline_module_revision_2()))
+                    else:
+                        patch_results.append(self.patch_engine.apply_patch(pipeline_path, self._pipeline_module_revision_2()))
 
         else:
+            # Generic repo: try LLM if available
             for file_name in plan_files_to_modify:
                 if not file_name.startswith("src/"):
                     continue
@@ -651,7 +741,27 @@ def process_records(records: list[dict]) -> dict:
                 full_path = workspace_path / file_name
                 if full_path.exists():
                     current = full_path.read_text(encoding="utf-8")
-                    patch_results.append(self.patch_engine.apply_patch(full_path, current))
+                    
+                    # For generic repos, try LLM to generate fixes
+                    llm_response = self.llm_generator.generate_file_content(
+                        file_path=file_name,
+                        current_content=current,
+                        objective="Improve code quality and functionality. Fix any issues detected in tests.",
+                        context="Generic repository with no predefined profile.",
+                    )
+                    
+                    if llm_response.success and llm_response.generated_code:
+                        logger.info(f"Using LLM-generated content for {file_name} (model: {llm_response.model_used})")
+                        result = self.patch_engine.apply_patch(full_path, llm_response.generated_code)
+                        patch_results.append(result)
+                        if not result.success:
+                            logger.warning(f"LLM-generated content failed validation for {file_name}, using original")
+                            patch_results.append(self.patch_engine.apply_patch(full_path, current))
+                    else:
+                        # LLM unavailable/failed, use original (no-op patch)
+                        if not llm_response.success:
+                            logger.debug(f"LLM generation skipped for {file_name}: {llm_response.error_message}")
+                        patch_results.append(self.patch_engine.apply_patch(full_path, current))
 
         return patch_results
 
@@ -964,7 +1074,7 @@ def process_records(records: list[dict]) -> dict:
             return StageResult(decision=Decision.REQUEST_CHANGES, notes="Unable to generate lane pull requests.")
 
         return StageResult(
-            produced_artifacts=pull_requests,
+            produced_artifacts=cast(list[BaseArtifact], pull_requests),
             notes=f"Generated {len(pull_requests)} lane pull request artifacts for parallel engineer review.",
         )
 
@@ -980,6 +1090,22 @@ def process_records(records: list[dict]) -> dict:
             if isinstance(artifact, PullRequest) and artifact.version == revision
         ]
         pr = revision_prs[-1] if revision_prs else context.latest(PullRequest)
+
+        if pr is None:
+            review = ReviewFeedback(
+                workflow_id=workflow_id,
+                stage=state.current_stage,
+                created_by=self.role,
+                status=ArtifactStatus.FINAL,
+                version=revision,
+                reviewer="peer_engineer",
+                decision=Decision.REQUEST_CHANGES,
+                comments="Peer review failed: pull request artifact missing for current revision.",
+                issues_identified=["Missing pull request artifact"],
+                suggested_changes=["Complete PULL_REQUEST_CREATED stage before peer review"],
+                pull_request_id=None,
+            )
+            return StageResult(produced_artifacts=[review], decision=Decision.REQUEST_CHANGES, notes="Peer code review failed.")
         
         # If no implementation, reject
         if implementation is None:
@@ -1001,7 +1127,7 @@ def process_records(records: list[dict]) -> dict:
         # Perform semantic code review analysis
         try:
             workspace_path = Path(implementation.workspace_path)
-            analyzer = CodeReviewAnalyzer(workspace_path, implementation, pr or PullRequest())
+            analyzer = CodeReviewAnalyzer(workspace_path, implementation, pr)
             review_metrics = analyzer.analyze()
             
             # Decision logic: Approve if overall score >= 0.5, else request changes

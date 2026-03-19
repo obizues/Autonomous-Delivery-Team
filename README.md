@@ -1,307 +1,104 @@
 # Autonomous Delivery Team
 
-A simulation framework for an autonomous software delivery team with multi-engineer parallel orchestration, real test-driven revision loops, and governance escalation policies.
+Version: **v0.1.0**
 
-## 🎯 Overview
+An autonomous software delivery simulation platform that orchestrates role-based AI agents from backlog intake through production acceptance, with parallel engineer execution, governance gates, revision loops, and escalation/resume handling.
 
-This system demonstrates a **fully autonomous AI-driven delivery workflow** where:
-- **Multiple engineers** work in parallel via lane decomposition during implementation
-- **Real test execution** drives revision cycles (pytest-based)
-- **Multi-stage workflow** from backlog intake through product acceptance (11 stages)
-- **Governance gates** with approval tracking and escalation policies
-- **Smart termination** that escalates when progress stalls or regressions occur
+## What This Project Does
 
-## 🏗️ Architecture
+- Runs a multi-stage delivery workflow with role-specialized agents.
+- Executes **parallel engineer agents** in **parallel lanes** during implementation.
+- Produces real artifacts, event logs, and state snapshots for each run.
+- Enforces review gates (including merge-conflict and test-validation checks).
+- Supports escalation and human-guided resume flows.
+- Provides a Streamlit dashboard for end-to-end visibility.
 
-### Core Components
+## Workflow Stages
 
-```
-autonomous_delivery/
-├── src/ai_software_factory/
-│   ├── workflow/          # State machine, stage orchestration, transitions
-│   ├── agents/roles/      # Role-based agents (ProductOwner, Architect, Engineer, TestEngineer)
-│   ├── domain/            # Data models (artifacts, enums, base classes)
-│   ├── execution/         # Code patching, test running, workspace management
-│   ├── governance/        # Approvals, escalations
-│   ├── events/            # Event bus for audit trail
-│   ├── persistence/       # In-memory stores (can be extended to DB)
-│   ├── planning/          # Change planning and repo analysis
-│   └── orchestration/     # Runner and engine initialization
-├── ui/                    # Streamlit dashboard
-└── seed_repos/            # Sample repositories (fakeUploadService, SimpleAuthService, DataPipeline)
-```
+`BACKLOG_INTAKE → PRODUCT_DEFINITION → REQUIREMENTS_ANALYSIS → ARCHITECTURE_DESIGN → IMPLEMENTATION → PULL_REQUEST_CREATED → MERGE_CONFLICT_GATE → ARCHITECTURE_REVIEW_GATE → PEER_CODE_REVIEW_GATE → TEST_VALIDATION_GATE → PRODUCT_ACCEPTANCE_GATE → DONE`
 
-### Workflow Stages (11 Total)
+## Quick Start
 
-```
-BACKLOG_INTAKE → PRODUCT_DEFINITION → REQUIREMENTS_ANALYSIS → 
-ARCHITECTURE_DESIGN → IMPLEMENTATION → PULL_REQUEST_CREATED → 
-ARCHITECTURE_REVIEW_GATE → PEER_CODE_REVIEW_GATE → 
-TEST_VALIDATION_GATE → PRODUCT_ACCEPTANCE_GATE → DONE
-```
+### 1) Create environment and install dependencies
 
-## 🚀 Key Features
-
-### 1. Parallel Engineer Lanes
-During IMPLEMENTATION, work is decomposed into dynamic parallel lanes (1-5 based on complexity):
-- Each lane gets assigned files from the change plan
-- Lanes execute in isolated workspaces simultaneously
-- Results are integrated back to shared sandbox
-- Failures tracked per-lane
-
-**Example Event:**
-```json
-{
-  "event_type": "FILES_MODIFIED",
-  "payload": {
-    "engineer_lanes": [
-      "engineer_1 files=['src/file_validator.py'] applied=2 failed=0",
-      "engineer_2 files=['src/upload_service.py'] applied=1 failed=0"
-    ]
-  }
-}
-```
-
-### 2. Real Test Execution
-- Pytest runner executes actual unit tests on each iteration
-- Test failures parsed to identify which tests broke
-- Progress tracked: failures_reduced, no_new_failures, stable_pass_streak
-- Test-driven revision loops
-
-### 3. Escalation Policies
-
-**Stalled Progress Escalation:**
-- If no test failures reduced over 2 consecutive revisions (revision >= 2)
-- Status → ESCALATED, current_stage → DONE
-- Message explains: "No reduction in failing tests...requires human review"
-
-**Regression Escalation:**
-- If NEW test failures appear near revision limit (revision >= max_revisions - 1)
-- Status → ESCALATED
-- Message: "NEW failing tests introduced...needs human intervention"
-
-### 4. Role-Based Agents
-
-| Role | Stages | Behavior |
-|------|--------|----------|
-| **Product Owner** | Backlog, Product Definition, Product Acceptance | Deterministic approvals per repo profile |
-| **Business Analyst** | Requirements Analysis | Semantic signal extraction |
-| **Architect** | Architecture Design, Architecture Review | Design validation |
-| **Engineer** | Implementation, PR Creation, Peer Review | Hybrid generation: LLM-first with deterministic fallback |
-| **Test Engineer** | Test Validation | Test execution and failure parsing |
-
-### 6. Optional LLM Code Generation (Safe Fallback)
-
-- Configure LLM via environment variables for code generation during implementation
-- If LLM is unavailable or generation fails, deterministic profile patches are applied
-- Existing acceptance scenarios continue to run without LLM configuration
-
-```bash
-# Optional LLM configuration
-set LLM_API_KEY=your_api_key_here
-set LLM_API_PROVIDER=openai
-set LLM_MODEL=gpt-4
-```
-
-```bash
-# Anthropic example
-set LLM_API_PROVIDER=anthropic
-set LLM_MODEL=claude-3-opus-20240229
-```
-
-### 5. Repository Profiles
-Three demo repos with scripted patch strategies:
-
-| Profile | Files | Patch Strategy | Test Scenario |
-|---------|-------|-----------------|---|
-| **upload** | file_validator.py, upload_service.py | Deterministic patches per revision | Validation logic fixes |
-| **auth** | auth_service.py, token_store.py | Token handling and caching | Account lockout recovery |
-| **pipeline** | pipeline.py, validators.py | Data flow optimization | Regression detection |
-
-### 6. Optional Real Repository Integration
-
-The workflow can now clone a real Git repository into the sandbox instead of copying a seed repo.
-
-```bash
-# Optional real repository execution
-set ASF_REPO_URL=https://github.com/owner/repo.git
-set ASF_REPO_REF=main
-python -m ai_software_factory
-```
-
-Notes:
-- If `ASF_REPO_URL` is set, the sandbox is created from `git clone`
-- If `ASF_REPO_REF` is set, the cloned repo is checked out to that branch, tag, or commit
-- If no repo URL is set, the system keeps using the existing seeded demo repositories
-
-### 7. Human-in-the-Loop Escalation Resume
-
-When a workflow escalates, a human can provide guidance and resume execution from implementation.
-
-- Escalations are persisted as artifacts
-- Human guidance is stored as a `HumanIntervention` artifact
-- Resumed workflow continues with an incremented revision and emits resume events
-
-From the dashboard:
-- Open the `DONE` stage when status is `ESCALATED`
-- Enter guidance in `Human guidance`
-- Click `Resolve escalation and resume`
-
-CLI resume (optional):
-
-```bash
-set ASF_PERSISTENCE_BACKEND=sqlite
-set ASF_SQLITE_PATH=generated_workspace/asf_state_ui.db
-set ASF_RESUME_WORKFLOW_ID=<workflow_id>
-set ASF_HUMAN_RESPONSE=Proceed with safer fix path
-python -m ai_software_factory
-```
-
-## 📊 Dashboard
-
-Run `streamlit run ui/app.py` to see:
-
-- **Summary Tab**: Team overview, parallel lanes, escalation status
-- **Graph Tab**: Workflow stage graph
-- **Revision Insights**: Test results per revision
-- **Execution Tab**: Detailed stage execution, lane assignments, artifact details
-- **Work Products**: All generated artifacts (specs, PRs, test reports)
-- **Event Log**: Full audit trail of all decisions and transitions
-
-## 🧪 Acceptance Tests
-
-```bash
-python scripts/demo_acceptance.py
-```
-
-**Scenarios:**
-1. **scenario_1_success**: Happy path - all gates approve, tests pass
-2. **scenario_2_semantic_signals**: Semantic planning signals integrated
-3. **scenario_3_auth_success**: Auth profile with escalation on stall
-4. **scenario_4_pipeline_success**: Pipeline profile with regression handling
-
-**Expected Output:**
-```
-scenario_1_success: status=COMPLETED revision=2 events=79
-scenario_2_semantic_signals: status=COMPLETED revision=2 events=79
-scenario_3_auth_success: status=COMPLETED revision=2 events=77
-scenario_4_pipeline_success: status=COMPLETED revision=2 events=77
-acceptance: PASSED
-```
-
-## 🔧 Running the System
-
-### Quick Start
-```bash
-# Set up Python environment
+```powershell
 python -m venv .venv
-source .venv/Scripts/activate  # Windows
-source .venv/bin/activate       # Mac/Linux
-
-# Install dependencies
+.venv\Scripts\activate
 pip install -r requirements.txt
-
-# Run acceptance tests
-python scripts/demo_acceptance.py
-
-# Launch dashboard
-streamlit run ui/app.py
 ```
 
-### Optional: Enable SQLite Persistence
-```bash
-# Default behavior is in-memory persistence
-# Enable SQLite-backed state/artifact persistence for runs:
-set ASF_PERSISTENCE_BACKEND=sqlite   # Windows PowerShell: $env:ASF_PERSISTENCE_BACKEND='sqlite'
-set ASF_SQLITE_PATH=generated_workspace/asf_state.db
+### 2) Run acceptance scenarios
 
-# Then run as usual
+```powershell
+$env:PYTHONPATH='src'
 python scripts/demo_acceptance.py
 ```
 
-### Run Single Workflow
-```python
-from src.ai_software_factory.orchestration.runner import run_demo_workflow
+### 3) Launch dashboard (workflow + UI)
 
-result = run_demo_workflow("fake_upload_service")
-print(f"Status: {result['status']}")
-print(f"Revisions: {result['revision']}")
-print(f"Events: {result['event_count']}")
+```powershell
+.venv\Scripts\python.exe ui/launcher.py
 ```
 
-## 📈 Execution Flow Example
+### 4) UI only
 
-```
-Workflow Start (backlog: "Add file validation")
-  ↓
-BACKLOG_INTAKE (ProductOwner) → artifacts created
-  ↓
-PRODUCT_DEFINITION (ProductOwner) → product spec created
-  ↓
-REQUIREMENTS_ANALYSIS (BA) → requirements spec created
-  ↓
-ARCHITECTURE_DESIGN (Architect) → architecture spec created
-  ↓
-IMPLEMENTATION (Engineer) 
-  ├─ Lane 1: src/file_validator.py (isolated workspace)
-  ├─ Lane 2: src/upload_service.py (isolated workspace)
-  └─ Lane 3: (empty or other files)
-  Results integrated → PR created
-  ↓
-PULL_REQUEST_CREATED (Engineer) → pull request artifact
-  ↓
-ARCHITECTURE_REVIEW_GATE (Architect)
-  ├─ Decision: APPROVED → continue
-  └─ Decision: REQUEST_CHANGES → revision += 1, back to IMPLEMENTATION
-  ↓
-PEER_CODE_REVIEW_GATE (Engineer)
-  ├─ Decision: APPROVED → continue
-  └─ Decision: REQUEST_CHANGES → revision += 1, back to IMPLEMENTATION
-  ↓
-TEST_VALIDATION_GATE (TestEngineer)
-  ├─ Tests PASS → continue
-  ├─ Tests FAIL & fixable → REQUEST_CHANGES, back to IMPLEMENTATION
-  └─ Tests FAIL & stalled 2 revisions → ESCALATE to human
-  ↓
-PRODUCT_ACCEPTANCE_GATE (ProductOwner) → APPROVED
-  ↓
-DONE (all artifacts, final_status=COMPLETED)
+```powershell
+.venv\Scripts\python.exe ui/launcher.py --ui-only
 ```
 
-## 🎓 Key Design Decisions
+## Common Commands
 
-1. **Lane-based parallelism during IMPLEMENTATION**: Scales easily, avoids full engine redesign
-2. **Deterministic agent behavior**: Seeded patches + test results → reproducible workflows
-3. **Event-driven audit trail**: Every decision, artifact, and transition logged
-4. **Escalation on stall, not max revisions**: Fails fast when progress stops, not after N attempts
-5. **In-memory persistence**: Fast POC; can extend to database
+- Run escalation demo:
+  - `python ui/launcher.py --escalation-demo`
+- Run engine directly:
+  - `python -m ai_software_factory`
+- Run dashboard directly:
+  - `streamlit run ui/app.py`
 
-## 🚦 Future Enhancements
+## Repository Layout
 
-### Short-term
-- [ ] Human-in-the-loop escalation handling: Accept feedback and resume workflow
+```text
+autonomous_delivery/
+├── src/ai_software_factory/   # Core engine, agents, workflow, persistence
+├── ui/                         # Streamlit dashboard and launcher
+├── scripts/                    # Acceptance and escalation demo scripts
+├── seed_repos/                 # Seed scenarios used by the engine
+├── docs/                       # Architecture and operational docs
+├── CHANGELOG.md                # Release history
+├── VERSION                     # Current release version
+└── requirements.txt            # Python dependencies
+```
 
-### Medium-term
-- [ ] True parallel agent tracks: Each engineer independently progresses through pipeline
-- [ ] Extend LLM usage to additional agents (Architect/BA/ProductOwner)
-- [ ] Persistent storage hardening: indexes, replay tooling, and migration strategy
-- [ ] Real repository hardening: richer backlog injection, branch management, and safer patch isolation
+## Documentation
 
-### Long-term
-- [ ] Distributed execution: Multiple machines running engineer lanes
-- [ ] Policy-driven governance and compliance checks
-- [ ] Multi-tenant orchestration and workspace isolation
+- Architecture: `docs/ARCHITECTURE.md`
+- Getting Started: `docs/GETTING_STARTED.md`
+- Operations Runbook: `docs/OPERATIONS.md`
+- Contributing: `docs/CONTRIBUTING.md`
+- Roadmap: `docs/ROADMAP.md`
+- Release Notes: `docs/RELEASE_NOTES_v0.1.0.md`
+- Changelog: `CHANGELOG.md`
 
-## 📝 License
+## Configuration (Environment Variables)
 
-MIT (or your preferred license)
+- Core
+  - `PYTHONPATH=src`
+  - `ASF_SEED_REPO` (`fake_upload_service|simple_auth_service|data_pipeline`)
+- Persistence
+  - `ASF_PERSISTENCE_BACKEND=sqlite`
+  - `ASF_SQLITE_PATH=generated_workspace/asf_state_ui.db`
+- Optional Git source
+  - `ASF_REPO_URL`
+  - `ASF_REPO_REF`
+- Resume from escalation
+  - `ASF_RESUME_WORKFLOW_ID`
+  - `ASF_HUMAN_RESPONSE`
+- Optional LLM support
+  - `LLM_API_KEY`
+  - `LLM_API_PROVIDER` (`openai|anthropic`)
+  - `LLM_MODEL`
 
-## 👥 Contributing
+## Release
 
-Contributions welcome! See development guidelines in CONTRIBUTING.md
-
----
-
-**Built for**: AI-driven autonomous delivery team orchestration  
-**Status**: POC - Production-ready core engine with demo repos  
-**Last Updated**: March 2026
+This repository is prepared for external viewing as **v0.1.0**.
+See `CHANGELOG.md` and `docs/RELEASE_NOTES_v0.1.0.md` for details.

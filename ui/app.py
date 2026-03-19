@@ -872,7 +872,7 @@ def render_summary_tab(
 
     # ── Key Issues Found ────────────────────────────────────────────────────
     st.divider()
-    st.markdown("#### 🔍 Key Issues Found")
+    st.markdown("#### 🔍 Issue History")
     issues_list = extract_key_issues(artifacts, events)
     if not issues_list:
         st.success(
@@ -880,9 +880,15 @@ def render_summary_tab(
             icon="✅",
         )
     else:
+        if status == "COMPLETED":
+            st.info("These are historical issues that were raised earlier and resolved during later revisions.")
+        elif status == "ESCALATED":
+            st.warning("These issues are still relevant to the current escalated state.")
+        else:
+            st.caption("This section shows revision history, including prior resolved issues.")
         for entry in issues_list:
             with st.expander(
-                f"⚠ **{entry['stage_label']}** requested changes · `{entry['artifact_type']}`",
+                f"🕘 **{entry['stage_label']}** requested changes · `{entry['artifact_type']}`",
                 expanded=False,
             ):
                 if entry["issues"]:
@@ -980,10 +986,10 @@ def render_sidebar(
                 st.caption(escalation_reason)
 
             response_templates = {
-                "Select a response template": "",
-                "Retry with safer fix strategy": "Resume from implementation. Prefer minimal safe changes, keep public behavior stable, and prioritize fixing currently failing tests.",
-                "Focus only on failing tests": "Resume from implementation and only change code paths linked to current failing tests; avoid unrelated refactors.",
-                "Stabilize then optimize later": "Resume from implementation with a stabilization-first plan. Defer non-critical improvements until tests are green.",
+                "Target failing tests only": "Resume from implementation and only change code paths linked to currently failing tests. Avoid unrelated refactors.",
+                "Minimal safe patch set": "Resume from implementation with the smallest safe patch set that restores test stability.",
+                "Stabilize first, optimize later": "Resume from implementation with a stabilization-first plan. Defer non-critical improvements until all tests are green.",
+                "Custom guidance": "",
             }
             template_choice = st.selectbox(
                 "Response template",
@@ -1044,7 +1050,7 @@ def render_sidebar(
                             resume_stage=resume_stage_option,
                             responder=responder_name.strip(),
                             resume_max_steps=int(resume_max_rejections) * 8 + 15,
-                            response_template=template_choice if template_choice != "Select a response template" else "",
+                            response_template=template_choice if template_choice != "Custom guidance" else "",
                         )
                     if success:
                         st.success("Workflow resumed.")
@@ -1247,14 +1253,6 @@ def render_main(
 
         with evidence_artifacts:
             st.markdown("### 📄 Work Products")
-            scope = st.radio(
-                "Scope",
-                options=["Global (all stages)", "Selected stage"],
-                horizontal=True,
-                index=0,
-                key="work_products_scope",
-            )
-
             by_stage = artifacts_by_stage(artifacts)
 
             def _render_artifact_entry(art: dict[str, Any], include_stage: bool = False) -> None:
@@ -1285,59 +1283,19 @@ def render_main(
                     else:
                         st.json(art["meta"])
 
-            if scope == "Global (all stages)":
-                stages_with_artifacts = [stage for stage in STAGE_ORDER if by_stage.get(stage)]
-                st.caption(f"Showing {sum(len(by_stage[s]) for s in stages_with_artifacts)} artifacts across {len(stages_with_artifacts)} stages.")
+            stages_with_artifacts = [stage for stage in STAGE_ORDER if by_stage.get(stage)]
+            st.caption(f"Showing {sum(len(by_stage[s]) for s in stages_with_artifacts)} artifacts across {len(stages_with_artifacts)} stages.")
 
-                for stage in stages_with_artifacts:
-                    icon, stage_label, role = STAGE_META.get(stage, ("•", stage, ""))
-                    stage_arts = sorted(
-                        by_stage.get(stage, []),
-                        key=lambda x: (int(x["version"]), str(x["meta"].get("created_at", ""))),
-                    )
-                    with st.expander(f"{icon} {stage_label} · {len(stage_arts)} artifact(s)", expanded=False):
-                        if role and role != "—":
-                            st.markdown(f"<div class='artifact-tag'>Agent: {role}</div>", unsafe_allow_html=True)
-                        for art in stage_arts:
-                            _render_artifact_entry(art)
-            else:
-                if "__rev" in selected_key:
-                    stage_key, rev_str = selected_key.rsplit("__rev", 1)
-                    target_rev = int(rev_str)
-                else:
-                    stage_key = selected_key
-                    target_rev = None
-
-                icon, stage_label, role = STAGE_META.get(stage_key, ("•", stage_key, ""))
-                st.markdown(f"### {icon} {stage_label}")
-                if role and role != "—":
-                    st.markdown(
-                        f'<div class="artifact-tag">Agent: {role}</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                stage_arts = by_stage.get(stage_key, [])
-                if target_rev is not None:
-                    stage_arts = [a for a in stage_arts if a["version"] == target_rev]
-
-                if stage_key == "DONE":
-                    final_status = effective_workflow_status(readme, events, snapshots)
-                    if final_status == "COMPLETED":
-                        st.success("✅ Workflow completed successfully. All gates approved.", icon="🎉")
-                    elif final_status == "FAILED":
-                        st.error("❌ Workflow ended in FAILED status.")
-                    elif final_status == "ESCALATED":
-                        st.warning("⚠️ Workflow has been escalated and requires your review and decision.")
-                        escalation_reason = latest_escalation_reason(events)
-                        if escalation_reason:
-                            st.caption(f"Escalation reason: {escalation_reason}")
-                    else:
-                        st.info(f"Workflow terminal status: {final_status}")
-
-                if not stage_arts:
-                    st.info("No artifacts recorded for this stage.")
-                else:
-                    for art in sorted(stage_arts, key=lambda x: (int(x["version"]), str(x["meta"].get("created_at", "")))):
+            for stage in stages_with_artifacts:
+                icon, stage_label, role = STAGE_META.get(stage, ("•", stage, ""))
+                stage_arts = sorted(
+                    by_stage.get(stage, []),
+                    key=lambda x: (int(x["version"]), str(x["meta"].get("created_at", ""))),
+                )
+                with st.expander(f"{icon} {stage_label} · {len(stage_arts)} artifact(s)", expanded=False):
+                    if role and role != "—":
+                        st.markdown(f"<div class='artifact-tag'>Agent: {role}</div>", unsafe_allow_html=True)
+                    for art in stage_arts:
                         _render_artifact_entry(art)
 
         with evidence_events:
@@ -1412,17 +1370,6 @@ def main() -> None:
 
     selected_key = render_sidebar(readme, artifacts, events, snapshots)
     render_main(selected_key, readme, artifacts, events, snapshots)
-
-    # Refresh button at bottom of sidebar
-    with st.sidebar:
-        st.divider()
-        if st.button("🔄 Refresh data"):
-            load_readme.clear()
-            load_artifacts.clear()
-            load_events.clear()
-            load_snapshots.clear()
-            st.rerun()
-
 
 if __name__ == "__main__" or True:
     main()

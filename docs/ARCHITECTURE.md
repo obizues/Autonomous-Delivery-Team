@@ -1,8 +1,10 @@
 # Architecture
 
+The Autonomous Delivery System is developed in the repository [obizues/Autonomous-Delivery-Team](https://github.com/obizues/Autonomous-Delivery-Team) on the `main` branch.
+
 ## System Overview
 
-Autonomous Delivery Team is a role-based workflow engine with observable execution artifacts and a Streamlit UI.
+Autonomous Delivery System is a role-based workflow engine with observable execution artifacts and a Streamlit UI.
 
 ```text
 UI (Streamlit)
@@ -16,6 +18,11 @@ Engine (ai_software_factory)
   ├─ EventBus (audit stream)
   └─ Execution (repo workspace, patching, pytest)
 ```
+
+## Repository References
+- Repo: obizues/Autonomous-Delivery-Team
+- Branch: main
+- Owner: obizues
 
 ```mermaid
 flowchart TB

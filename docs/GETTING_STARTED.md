@@ -1,5 +1,7 @@
 # Getting Started
 
+Welcome to the Autonomous Delivery System! This project is hosted at [obizues/Autonomous-Delivery-Team](https://github.com/obizues/Autonomous-Delivery-Team) on the `main` branch.
+
 ## Prerequisites
 
 - Python 3.11+
@@ -37,7 +39,10 @@ acceptance: PASSED
 .venv\Scripts\python.exe ui/launcher.py
 ```
 
-Useful options:
+## References
+- Repository: [obizues/Autonomous-Delivery-Team](https://github.com/obizues/Autonomous-Delivery-Team)
+- Branch: main
+- Owner: obizues
 - `--ui-only`
 - `--escalation-demo`
 - `--port 8600`

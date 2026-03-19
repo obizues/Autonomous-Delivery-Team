@@ -1,4 +1,7 @@
-# Autonomous Delivery Team
+
+# Autonomous Delivery System
+
+This project is maintained in the GitHub repository [obizues/Autonomous-Delivery-Team](https://github.com/obizues/Autonomous-Delivery-Team) on the `main` branch.
 
 Version: **v0.2.0**
 
@@ -6,7 +9,18 @@ Version: **v0.2.0**
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
 ![Docs](https://img.shields.io/badge/docs-ready-16a34a)
 
-An autonomous software delivery simulation platform that orchestrates role-based AI agents from backlog intake through production acceptance, with parallel engineer execution, governance gates, revision loops, and escalation/resume handling.
+Autonomous Delivery System enables automated software delivery workflows with cross-repo autonomy. See docs/ROADMAP.md and docs/V0_4_CROSS_REPO_AUTONOMY_BACKLOG.md for planning and backlog.
+
+## Maintainer
+- Owner: obizues
+- Branch: main
+
+## Why This Matters
+
+- Demonstrates how autonomous delivery can stay auditable, deterministic, and review-driven.
+- Shows practical patterns for multi-agent coordination, not just single-agent code generation.
+- Bridges autonomous implementation with governance gates, escalation, and human intervention.
+- Provides a concrete reference implementation for agentic SDLC experimentation.
 
 ## Why This Matters
 
@@ -23,6 +37,11 @@ An autonomous software delivery simulation platform that orchestrates role-based
 - Enforces review gates (including merge-conflict and test-validation checks).
 - Supports escalation and human-guided resume flows with explicit intervention decision capture.
 - Provides a Streamlit dashboard for end-to-end visibility.
+
+## Repository References
+- Repo: obizues/Autonomous-Delivery-Team
+- Branch: main
+- Owner: obizues
 
 ## Workflow Stages
 

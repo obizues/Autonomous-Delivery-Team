@@ -338,7 +338,7 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
             row["lane_id"]: row.get("reviewed_by", "—")
             for row in cross_reviews.get(latest_engineer_revision, [])
         }
-        st.markdown(f"#### 👷 Engineer Lanes · Revision {latest_engineer_revision}")
+        st.markdown(f"#### 👷 Engineer Agents · Revision {latest_engineer_revision}")
         for row in lane_rows:
             lane_id = str(row.get("lane_id", "unknown"))
             story_slice = str(row.get("story_slice", "Unspecified slice"))
@@ -618,7 +618,7 @@ def render_summary_tab(
                 <span style="color:{_tokens['text_secondary']};font-size:0.85rem">✅&nbsp;Gates approved: <strong>{approved}</strong></span>
                 <span style="color:{_tokens['text_secondary']};font-size:0.85rem">⚠&nbsp;Revision requests: <strong>{changes_req}</strong></span>
                 <span style="color:{_tokens['text_secondary']};font-size:0.85rem">🔀&nbsp;PRs (latest revision): <strong>{len(latest_revision_prs)}</strong></span>
-                <span style="color:{_tokens['text_secondary']};font-size:0.85rem">👷&nbsp;Engineer lanes: <strong>{engineer_lane_count}</strong></span>
+                <span style="color:{_tokens['text_secondary']};font-size:0.85rem">👷&nbsp;Engineer agents: <strong>{engineer_lane_count}</strong></span>
             </div>
         </div>
         """,
@@ -638,7 +638,7 @@ def render_summary_tab(
             if row["role"] == "Engineer" and engineer_lane_count > 0:
                 cycles = int(row.get("cycles", 0) or 0)
                 revision_label = "revision" if cycles == 1 else "revisions"
-                engineer_label = "engineer" if engineer_lane_count == 1 else "engineers"
+                engineer_label = "engineer agent" if engineer_lane_count == 1 else "engineer agents"
                 if cycles > 0:
                     status_text = f"{engineer_lane_count} {engineer_label} active across {cycles} {revision_label}"
                 else:
@@ -660,8 +660,8 @@ def render_summary_tab(
             break
 
     if engineer_lanes:
-        with st.expander("🔀 Parallel Engineer Lanes", expanded=False):
-            st.markdown(f"**{len(engineer_lanes)} engineers working in parallel** on decomposed tasks:")
+        with st.expander("🔀 Engineer Agents and Parallel Lanes", expanded=False):
+            st.markdown(f"**{len(engineer_lanes)} engineer agents working across parallel lanes** on decomposed tasks:")
             cols = st.columns(len(engineer_lanes))
             for col, lane_summary in zip(cols, engineer_lanes):
                 lane_parts = lane_summary.split()
@@ -698,7 +698,7 @@ def render_summary_tab(
 
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Revision", latest_engineer_revision)
-            m2.metric("Engineer Lanes", len(lane_rows))
+            m2.metric("Engineer Agents", len(lane_rows))
             m3.metric("Files Assigned", total_files)
             m4.metric("Patch Outcome", f"{total_applied}/{total_failed}")
 
@@ -776,7 +776,7 @@ def render_summary_tab(
                 row.get("stage") in {"IMPLEMENTATION", "PULL_REQUEST_CREATED", "MERGE_CONFLICT_GATE", "PEER_CODE_REVIEW_GATE"}
                 and row.get("revision") in lanes_by_revision
             ):
-                role_label = f"Engineer Team ({len(lanes_by_revision[row['revision']])} lanes)"
+                role_label = f"Engineer Team ({len(lanes_by_revision[row['revision']])} parallel lanes)"
             c2.markdown(
                 f"<span style='color:#8b949e'>{role_label}</span>",
                 unsafe_allow_html=True,

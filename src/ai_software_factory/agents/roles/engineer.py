@@ -194,11 +194,11 @@ class CodeReviewAnalyzer:
 
 class EngineerAgent(Agent):
     role = "engineer"
-    ENGINEER_IDENTITIES = (
-        "alex_chen",
-        "priya_nair",
-        "marcus_reed",
-    )
+    STORY_SLICE_ASSIGNMENTS = {
+        1: "Core domain workflow",
+        2: "Validation and edge handling",
+        3: "Integration and regression safeguards",
+    }
 
     def __init__(
         self,
@@ -554,10 +554,8 @@ def process_records(records: list[dict]) -> dict:
         return []
 
     @classmethod
-    def _lane_identity(cls, lane_index: int) -> str:
-        if 1 <= lane_index <= len(cls.ENGINEER_IDENTITIES):
-            return cls.ENGINEER_IDENTITIES[lane_index - 1]
-        return f"engineer_{lane_index}"
+    def _story_slice_assignment(cls, lane_index: int) -> str:
+        return cls.STORY_SLICE_ASSIGNMENTS.get(lane_index, f"Auxiliary implementation slice {lane_index}")
 
     def _build_engineer_lanes(
         self,
@@ -572,7 +570,7 @@ def process_records(records: list[dict]) -> dict:
         source_targets = sorted(set(source_targets + required_targets))
 
         if not source_targets:
-            return [{"lane_id": self._lane_identity(1), "files": []}]
+            return [{"lane_id": "engineer_1", "files": []}]
 
         # Calculate complexity and get optimal lane count
         complexity = self._calculate_complexity(backlog_text, source_targets, target_symbols)
@@ -590,10 +588,11 @@ def process_records(records: list[dict]) -> dict:
             if not bucket:
                 continue
             lanes.append({
-                "lane_id": self._lane_identity(index),
+                "lane_id": f"engineer_{index}",
+                "story_slice": self._story_slice_assignment(index),
                 "files": sorted(bucket),
             })
-        return lanes or [{"lane_id": self._lane_identity(1), "files": source_targets}]
+        return lanes or [{"lane_id": "engineer_1", "files": source_targets}]
 
     @staticmethod
     def _create_lane_workspace(sandbox_path: Path, revision: int, lane_id: str) -> Path:
@@ -854,6 +853,7 @@ def process_records(records: list[dict]) -> dict:
 
         for lane in lanes:
             lane_id = str(lane["lane_id"])
+            lane_story_slice = str(lane.get("story_slice", self._story_slice_assignment(1)))
             lane_files_raw = lane.get("files", [])
             lane_files = set(lane_files_raw if isinstance(lane_files_raw, list) else [])
             lane_workspace = self._create_lane_workspace(sandbox_path, revision, lane_id)
@@ -933,11 +933,22 @@ def process_records(records: list[dict]) -> dict:
                     )
 
             lane_summaries.append(
-                f"{lane_id} files={sorted(lane_files) if lane_files else ['(planner-default)']} "
+                f"{lane_id} slice={lane_story_slice} files={sorted(lane_files) if lane_files else ['(planner-default)']} "
                 f"applied={lane_success_count} failed={lane_failure_count}"
             )
 
         changed_files = sorted(set(changed_files))
+        lane_assignment_payload: list[dict[str, object]] = []
+        for index, lane in enumerate(lanes):
+            lane_files = lane.get("files", [])
+            normalized_lane_files = lane_files if isinstance(lane_files, list) else []
+            lane_assignment_payload.append(
+                {
+                    "lane_id": str(lane["lane_id"]),
+                    "story_slice": str(lane.get("story_slice", self._story_slice_assignment(index + 1))),
+                    "files": normalized_lane_files,
+                }
+            )
 
         self.event_bus.emit(
             workflow_id=workflow_id,
@@ -948,6 +959,7 @@ def process_records(records: list[dict]) -> dict:
                 "files_changed": changed_files,
                 "revision": revision,
                 "engineer_lanes": lane_summaries,
+                "engineer_lane_assignments": lane_assignment_payload,
             },
         )
 
@@ -1063,17 +1075,18 @@ def process_records(records: list[dict]) -> dict:
         for lane_index, lane_files in enumerate(lane_buckets, start=1):
             if not lane_files:
                 continue
-            lane_id = self._lane_identity(lane_index)
+            lane_id = f"engineer_{lane_index}"
+            lane_story_slice = self._story_slice_assignment(lane_index)
             pr = PullRequest(
                 workflow_id=workflow_id,
                 stage=state.current_stage,
                 created_by=self.role,
                 status=ArtifactStatus.FINAL,
                 version=revision,
-                title=f"feat(repo-mode): {title} — revision {revision} [{lane_id}]",
+                title=f"feat(repo-mode): {title} — revision {revision} [{lane_id}: {lane_story_slice}]",
                 description=(
                     "Applies semantic repo-aware patching in sandbox based on failure context. "
-                    f"Scoped to {lane_id} lane files."
+                    f"Scoped to {lane_id} lane files. Story slice: {lane_story_slice}."
                 ),
                 implementation_artifact_id=implementation.artifact_id,
                 files_modified=sorted(lane_files),

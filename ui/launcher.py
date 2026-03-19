@@ -97,16 +97,23 @@ def launch_dashboard() -> None:
         f"\n[{'2/2' if not args.ui_only else '1/1'}] Starting dashboard at "
         f"http://localhost:{selected_port}\n"
     )
-    subprocess.run(
-        [
-            str(VENV_STREAMLIT),
-            "run", str(APP),
-            f"--server.port={selected_port}",
-            "--server.headless=false",
-            "--browser.gatherUsageStats=false",
-        ],
-        cwd=ROOT,
-    )
+    try:
+        result = subprocess.run(
+            [
+                str(VENV_STREAMLIT),
+                "run", str(APP),
+                f"--server.port={selected_port}",
+                "--server.headless=false",
+                "--browser.gatherUsageStats=false",
+            ],
+            cwd=ROOT,
+        )
+    except KeyboardInterrupt:
+        print("\nDashboard stopped by user.")
+        return
+
+    if result.returncode != 0:
+        print(f"\nDashboard exited with code {result.returncode}.")
 
 
 parser = argparse.ArgumentParser(description="AI Software Factory launcher")

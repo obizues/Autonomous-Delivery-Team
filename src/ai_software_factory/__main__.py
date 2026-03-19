@@ -217,11 +217,15 @@ def main() -> None:
     resume_responder = os.getenv("ASF_RESUME_RESPONDER", "human_operator")
     resume_max_steps = max(20, _parse_int(os.getenv("ASF_RESUME_MAX_STEPS"), 120))
     run_max_steps = resume_max_steps if resume_workflow_id else 500
+    selected_backend = os.getenv("ASF_PERSISTENCE_BACKEND", "memory")
+    selected_sqlite_path = os.getenv("ASF_SQLITE_PATH", "generated_workspace/asf_state.db")
     repo_source = selected_repo_url or selected_seed_repo
     engine = create_engine(
         seed_repo_name=selected_seed_repo,
         repo_url=selected_repo_url,
         repo_ref=selected_repo_ref,
+        persistence_backend=selected_backend,
+        sqlite_path=selected_sqlite_path,
     )
 
     if resume_workflow_id:
@@ -230,12 +234,19 @@ def main() -> None:
         if backlog_item is None:
             backlog_item = build_demo_backlog(selected_seed_repo, repo_url=selected_repo_url)
             backlog_item.title = f"Resumed workflow {resume_workflow_id}"
-        state = engine.resume_from_escalation(
-            workflow_id=resume_workflow_id,
-            human_response=human_response,
-            responder=resume_responder,
-            resume_stage=resume_stage,
-        )
+        try:
+            state = engine.resume_from_escalation(
+                workflow_id=resume_workflow_id,
+                human_response=human_response,
+                responder=resume_responder,
+                resume_stage=resume_stage,
+            )
+        except KeyError:
+            raise SystemExit(
+                "Resume failed: workflow_id "
+                f"'{resume_workflow_id}' was not found in the configured state store "
+                f"(backend={selected_backend}, sqlite_path={selected_sqlite_path})."
+            )
     else:
         backlog_item = build_demo_backlog(selected_seed_repo, repo_url=selected_repo_url)
         state = engine.start(backlog_item)

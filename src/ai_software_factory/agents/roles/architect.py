@@ -79,19 +79,90 @@ class ArchitectAgent(Agent):
 
         if stage == WorkflowStage.ARCHITECTURE_REVIEW_GATE:
             pr = context.latest(PullRequest)
+            arch_spec = context.latest(ArchitectureSpec)
+            impl = next(
+                (a for a in reversed(context.artifacts)
+                 if a.__class__.__name__ == "CodeImplementation" and a.version == revision),
+                None,
+            )
+
             if pr is None:
                 decision = Decision.REQUEST_CHANGES
                 comments = "Architecture review blocked: no pull request artifact found for this revision."
                 issues = ["Pull request artifact is missing for the current revision"]
                 suggestions = ["Engineer must submit a PullRequest artifact before architecture review can proceed"]
             else:
-                decision = Decision.APPROVED
-                comments = (
-                    "Architecture review passed. Implementation aligns with the modular repo-aware workflow, "
-                    "semantic targeting, deterministic rule enforcement, and revision-safe patching strategy."
-                )
+                # Perform alignment check against architecture spec
                 issues = []
                 suggestions = []
+                alignment_failures = 0
+
+                if impl is not None:
+                    changed = set(f.lower() for f in (impl.files_changed or []))
+                    written = set(f.lower() for f in (impl.written_source_files or []))
+                    all_touched = changed | written
+
+                    if not all_touched:
+                        issues.append("ADR-01 violation: no source files were changed — implementation appears empty")
+                        alignment_failures += 2
+
+                    # API stability: PR description should acknowledge contract changes
+                    pr_desc = (pr.description or "").lower()
+                    if "contract" not in pr_desc and "api" not in pr_desc and len(all_touched) > 0:
+                        if len(impl.files_changed or []) > 3:
+                            issues.append("ADR-02 concern: broad change set with no API stability notes in PR description")
+                            alignment_failures += 1
+
+                    # Arch spec risk mitigations: rejection/validation must be present
+                    source_contents = []
+                    try:
+                        import os
+                        from pathlib import Path as _Path
+                        ws = _Path(impl.workspace_path) if impl.workspace_path else None
+                        if ws and ws.exists():
+                            for rel in (impl.written_source_files or [])[:5]:
+                                fp = ws / rel
+                                if fp.exists():
+                                    try:
+                                        source_contents.append(fp.read_text(encoding="utf-8", errors="ignore").lower())
+                                    except Exception:
+                                        pass
+                    except Exception:
+                        pass
+
+                    combined = " ".join(source_contents)
+                    if combined and "reject" not in combined and "raise" not in combined and "error" not in combined:
+                        issues.append("ADR-04 / RISK-03: no rejection/error paths detected in source files — validation logic may be missing")
+                        alignment_failures += 1
+
+                if arch_spec is not None and not arch_spec.risks:
+                    suggestions.append("Architecture spec has no recorded risks; ensure identified risks are tracked")
+
+                if alignment_failures >= 2:
+                    decision = Decision.REQUEST_CHANGES
+                    comments = (
+                        f"Architecture review: REQUEST_CHANGES. {alignment_failures} alignment gap(s) detected. "
+                        "Implementation does not adequately satisfy architectural constraints. "
+                        "See issues for details."
+                    )
+                    suggestions.extend([
+                        "Ensure all changed files are recorded in implementation artifact",
+                        "Add rejection/validation paths that satisfy ADR-04 and RISK-03",
+                    ])
+                elif alignment_failures == 1:
+                    decision = Decision.APPROVED
+                    comments = (
+                        "Architecture review passed with minor concerns. Implementation broadly aligns with "
+                        "the modular workflow, semantic targeting, and revision-safe patching strategy. "
+                        "One alignment note recorded as a suggestion."
+                    )
+                else:
+                    decision = Decision.APPROVED
+                    comments = (
+                        "Architecture review passed. Implementation fully aligns with the modular repo-aware workflow, "
+                        "semantic targeting, deterministic rule enforcement, and revision-safe patching strategy."
+                    )
+                    issues = []
 
             review = ReviewFeedback(
                 workflow_id=wf_id,

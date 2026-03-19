@@ -1,8 +1,8 @@
 # Autonomous Delivery Team
 
-Version: **v0.1.0**
+Version: **v0.2.0**
 
-![Release](https://img.shields.io/badge/release-v0.1.0-2563eb)
+![Release](https://img.shields.io/badge/release-v0.2.0-2563eb)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
 ![Docs](https://img.shields.io/badge/docs-ready-16a34a)
 
@@ -21,7 +21,7 @@ An autonomous software delivery simulation platform that orchestrates role-based
 - Executes **parallel engineer agents** in **parallel lanes** during implementation.
 - Produces real artifacts, event logs, and state snapshots for each run.
 - Enforces review gates (including merge-conflict and test-validation checks).
-- Supports escalation and human-guided resume flows.
+- Supports escalation and human-guided resume flows with explicit intervention decision capture.
 - Provides a Streamlit dashboard for end-to-end visibility.
 
 ## Workflow Stages
@@ -109,7 +109,7 @@ autonomous_delivery/
 - Operations Runbook: `docs/OPERATIONS.md`
 - Contributing: `docs/CONTRIBUTING.md`
 - Roadmap: `docs/ROADMAP.md`
-- Release Notes: `docs/RELEASE_NOTES_v0.1.0.md`
+- Release Notes: `docs/RELEASE_NOTES_v0.2.0.md`
 - Screenshots Guide: `docs/SCREENSHOTS.md`
 - Changelog: `CHANGELOG.md`
 
@@ -131,9 +131,11 @@ For external viewers, include dashboard screenshots under `docs/assets/screensho
 - Resume from escalation
   - `ASF_RESUME_WORKFLOW_ID`
   - `ASF_HUMAN_RESPONSE`
+  - `ASF_HUMAN_RESPONSE_TEMPLATE` (selected response template label)
   - `ASF_RESUME_STAGE` (e.g., `IMPLEMENTATION`, `MERGE_CONFLICT_GATE`, `TEST_VALIDATION_GATE`)
   - `ASF_RESUME_RESPONDER` (identity recorded in HumanIntervention)
-  - `ASF_RESUME_MAX_STEPS` (safety limit for post-resume transitions)
+  - `ASF_RESUME_MAX_REJECTIONS` (recommended: rejection runway budget)
+  - `ASF_RESUME_MAX_STEPS` (legacy compatibility safety limit)
 - Optional LLM support
   - `LLM_API_KEY`
   - `LLM_API_PROVIDER` (`openai|anthropic`)
@@ -141,5 +143,5 @@ For external viewers, include dashboard screenshots under `docs/assets/screensho
 
 ## Release
 
-This repository is prepared for external viewing as **v0.1.0**.
-See `CHANGELOG.md` and `docs/RELEASE_NOTES_v0.1.0.md` for details.
+This repository is prepared for external viewing as **v0.2.0**.
+See `CHANGELOG.md` and `docs/RELEASE_NOTES_v0.2.0.md` for details.

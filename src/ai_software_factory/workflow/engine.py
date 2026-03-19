@@ -137,6 +137,8 @@ class WorkflowEngine:
         human_response: str,
         responder: str = "human_operator",
         resume_stage: WorkflowStage = WorkflowStage.IMPLEMENTATION,
+        response_template: str = "",
+        resume_max_steps: int = 120,
     ) -> WorkflowState:
         state = self.state_store.load(workflow_id)
         if state.status != WorkflowStatus.ESCALATED:
@@ -160,11 +162,14 @@ class WorkflowEngine:
             escalation_artifact_id=escalation.artifact_id,
             responder=responder,
             response=human_response,
+            response_template=response_template,
             desired_outcome="resume_workflow",
             resume_stage=resume_stage,
+            resume_max_steps=resume_max_steps,
             resolution_notes=[
                 f"Escalation resolved by {responder}",
                 f"Workflow will resume from {resume_stage.value}",
+                f"Resume max steps: {resume_max_steps}",
             ],
         )
         self.artifact_store.save(intervention)
@@ -191,6 +196,7 @@ class WorkflowEngine:
                 "escalation_id": escalation.artifact_id,
                 "responder": responder,
                 "response": human_response,
+                "response_template": response_template,
             },
         )
         self.event_bus.emit(
@@ -210,6 +216,9 @@ class WorkflowEngine:
                 "from_stage": previous_stage.value,
                 "to_stage": resume_stage.value,
                 "new_revision": state.revision,
+                "responder": responder,
+                "response_template": response_template,
+                "resume_max_steps": resume_max_steps,
             },
         )
         self.event_bus.emit(
@@ -320,7 +329,20 @@ class WorkflowEngine:
                 stalled = bool(progress.get("stalled", False))
                 regression_detected = not bool(progress.get("no_new_failures", True))
 
-                if stalled and state.revision >= 2:
+                if state.revision >= self.max_revisions:
+                    escalation = self._record_escalation(
+                        state=state,
+                        stage=stage,
+                        reason=(
+                            "⛔ Revision budget exhausted: review gates requested changes at or beyond the configured "
+                            f"revision limit ({self.max_revisions}). Human decision required to continue."
+                        ),
+                        raised_by="workflow_engine",
+                        extra_payload={"progress": progress, "max_revisions": self.max_revisions},
+                    )
+                    state.status = WorkflowStatus.ESCALATED
+                    state.current_stage = WorkflowStage.DONE
+                elif stalled and state.revision >= 2:
                     escalation = self._record_escalation(
                         state=state,
                         stage=stage,

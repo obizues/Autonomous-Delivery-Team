@@ -135,6 +135,7 @@ def run_resume_from_dashboard(
     resume_stage: str = "IMPLEMENTATION",
     responder: str = "human_operator",
     resume_max_steps: int = 120,
+    response_template: str = "",
 ) -> tuple[bool, str]:
     resolved_sqlite, checked_paths = _resolve_sqlite_path_for_workflow(workflow_id)
     if resolved_sqlite is None:
@@ -161,6 +162,7 @@ def run_resume_from_dashboard(
                 "ASF_RESUME_STAGE": resume_stage,
                 "ASF_RESUME_RESPONDER": responder,
                 "ASF_RESUME_MAX_STEPS": str(resume_max_steps),
+                "ASF_HUMAN_RESPONSE_TEMPLATE": response_template,
             },
             capture_output=True,
             text=True,

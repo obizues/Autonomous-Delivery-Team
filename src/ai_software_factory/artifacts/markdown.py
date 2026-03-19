@@ -171,12 +171,18 @@ def _render_escalation(a: EscalationArtifact) -> tuple[str, str]:
 
 
 def _render_human_intervention(a: HumanIntervention) -> tuple[str, str]:
-    md = _h(1, "Human Intervention")
-    md += f"\n> *Revision {a.version} · Stage: {a.stage.value} · Responder: {a.responder}*\n"
+    md = _h(1, "Human Intervention Decision")
+    md += f"\n> *Revision {a.version} · Responder: {a.responder} · Resume Stage: {a.resume_stage.value}*\n"
     md += _divider()
-    md += _section("Requested Outcome", f"{a.desired_outcome}\n")
+    if getattr(a, "response_template", ""):
+        md += _section("Response Template Selected", f"{a.response_template}\n")
+    md += _section("Human Guidance", f"{a.response or '_No response provided._'}\n")
     md += _section("Resume Stage", f"{a.resume_stage.value}\n")
-    md += _section("Response", f"{a.response or '_No response provided._'}\n")
+    max_steps = getattr(a, "resume_max_steps", None)
+    if max_steps is not None:
+        rejections_equiv = max(1, (int(max_steps) - 15) // 8)
+        md += _section("Step Budget", f"{max_steps} steps (~{rejections_equiv} additional rejection(s) of runway)\n")
+    md += _section("Requested Outcome", f"{a.desired_outcome}\n")
     md += _section("Resolution Notes", _bullet_list(a.resolution_notes))
     return "human_intervention", md
 

@@ -71,11 +71,14 @@ $env:ASF_PERSISTENCE_BACKEND='sqlite'
 $env:ASF_SQLITE_PATH='generated_workspace/asf_state_ui.db'
 $env:ASF_RESUME_WORKFLOW_ID='<workflow_id>'
 $env:ASF_HUMAN_RESPONSE='Resume with minimal safe fixes first.'
+$env:ASF_HUMAN_RESPONSE_TEMPLATE='Retry with safer fix strategy'
 $env:ASF_RESUME_STAGE='IMPLEMENTATION'
 $env:ASF_RESUME_RESPONDER='human_operator'
-$env:ASF_RESUME_MAX_STEPS='120'
+$env:ASF_RESUME_MAX_REJECTIONS='3'
 python -m ai_software_factory
 ```
+
+`ASF_RESUME_MAX_STEPS` remains supported for backward compatibility, but `ASF_RESUME_MAX_REJECTIONS` is recommended.
 
 ## End-to-End Resume Validation
 

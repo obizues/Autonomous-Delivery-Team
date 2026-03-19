@@ -118,8 +118,10 @@ class HumanIntervention(BaseArtifact):
     escalation_artifact_id: str | None = None
     responder: str = "human_operator"
     response: str = ""
+    response_template: str = ""
     desired_outcome: str = "resume_workflow"
     resume_stage: WorkflowStage = WorkflowStage.IMPLEMENTATION
+    resume_max_steps: int = 120
     resolution_notes: list[str] = field(default_factory=list)
 
 

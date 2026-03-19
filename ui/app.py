@@ -175,6 +175,10 @@ def render_workflow_graph_tab(readme: dict, events: list[dict], snapshots: dict)
         "Visual path of the current run, including review decisions and revision loops."
     )
 
+    # Surface latest human escalation decision in process view for traceability
+    artifact_items = load_artifacts()
+    _render_human_intervention_card(artifact_items)
+
     nodes = build_graph_nodes(events)
     if not nodes:
         st.info("No transition data found yet. Run the workflow to generate graph data.")
@@ -282,6 +286,47 @@ def render_workflow_graph_tab(readme: dict, events: list[dict], snapshots: dict)
                 st.markdown('<div class="wf-arrow">⬇</div>', unsafe_allow_html=True)
 
 
+def _latest_human_intervention(artifacts: list[dict]) -> dict[str, Any] | None:
+    interventions = [a for a in artifacts if a.get("type") == "HumanIntervention"]
+    if not interventions:
+        return None
+    return max(
+        interventions,
+        key=lambda a: (
+            int(a.get("version", 0) or 0),
+            str(a.get("meta", {}).get("created_at", "")),
+            str(a.get("uuid", "")),
+        ),
+    )
+
+
+def _render_human_intervention_card(artifacts: list[dict], title: str = "🧑‍💼 Escalation Decision") -> None:
+    intervention = _latest_human_intervention(artifacts)
+    if intervention is None:
+        return
+
+    meta = intervention.get("meta", {})
+    responder = str(meta.get("responder") or intervention.get("created_by") or "human_operator")
+    resume_stage = str(meta.get("resume_stage") or "IMPLEMENTATION")
+    response_template = str(meta.get("response_template") or "")
+    human_guidance = str(meta.get("response") or "")
+    resume_max_steps = meta.get("resume_max_steps")
+
+    max_rejections = "?"
+    if isinstance(resume_max_steps, int):
+        max_rejections = str(max(1, (resume_max_steps - 15) // 8))
+
+    st.markdown(f"#### {title}")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Responder", responder)
+    m2.metric("Resume Stage", resume_stage)
+    m3.metric("Max Rejections", max_rejections)
+    if response_template:
+        st.markdown(f"**Response Template:** {response_template}")
+    if human_guidance:
+        st.info(human_guidance)
+
+
 def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]) -> None:
     st.markdown("### ⚙️ Real Execution")
     st.markdown("Generated code, tests, and real pytest execution for the current workflow run.")
@@ -323,6 +368,8 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
     )
 
     st.markdown(f"**Generated workspace path:** {workspace_path}")
+
+    _render_human_intervention_card(artifacts)
 
     lane_insights = engineer_lane_insights_by_revision(events)
     cross_reviews = cross_review_assignments_by_revision(artifacts)
@@ -625,6 +672,8 @@ def render_summary_tab(
         unsafe_allow_html=True,
     )
 
+    _render_human_intervention_card(artifacts)
+
     # ── Team overview ───────────────────────────────────────────────────────
     with st.expander("👥 Autonomous Delivery Team", expanded=False):
         team_rows = team_overview(snapshots)
@@ -891,6 +940,8 @@ def render_summary_tab(
     else:
         st.warning(f"Workflow status: {status}")
 
+    _render_human_intervention_card(artifacts, title="🧑‍💼 Escalation Decision (Latest)")
+
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
@@ -966,14 +1017,17 @@ def render_sidebar(
                 key="sidebar_resume_responder",
                 help="Recorded on the HumanIntervention artifact.",
             )
-            resume_max_steps = st.number_input(
-                "Resume max steps",
-                min_value=20,
-                max_value=300,
-                value=120,
-                step=10,
+            resume_max_rejections = st.number_input(
+                "Max additional rejections",
+                min_value=1,
+                max_value=10,
+                value=3,
+                step=1,
                 key="sidebar_resume_max_steps",
-                help="Safety limit for stage transitions after resume.",
+                help=(
+                    "How many more gate failures (REQUEST_CHANGES) the team is allowed before the workflow "
+                    "re-escalates. Each rejection = ~6 stage transitions. 3 = ~39 steps budget."
+                ),
             )
             if st.button("▶ Resolve escalation and resume", use_container_width=True, key="sidebar_resume_escalation"):
                 if not wf_id or wf_id == "—":
@@ -989,7 +1043,8 @@ def render_sidebar(
                             human_response_sidebar.strip(),
                             resume_stage=resume_stage_option,
                             responder=responder_name.strip(),
-                            resume_max_steps=int(resume_max_steps),
+                            resume_max_steps=int(resume_max_rejections) * 8 + 15,
+                            response_template=template_choice if template_choice != "Select a response template" else "",
                         )
                     if success:
                         st.success("Workflow resumed.")

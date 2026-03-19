@@ -2,14 +2,14 @@
 
 ## Current Release
 
-- `v0.1.0` baseline established.
+- `v0.2.0` baseline established with escalation decision telemetry and hardened review gates.
 
 ## Next Planned Items
 
-- Resume policy controls
-- End-to-end resume tests
 - Abandon escalation mode
 - Best Effort escalation mode
+- Externalized gate policy configuration
+- Run quality scorecards
 
 ## Future Improvements
 

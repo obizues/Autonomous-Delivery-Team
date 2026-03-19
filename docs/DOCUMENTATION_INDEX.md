@@ -8,5 +8,5 @@
 - Operations Runbook: `OPERATIONS.md`
 - Contributing Guide: `CONTRIBUTING.md`
 - Roadmap: `ROADMAP.md`
-- Release Notes (v0.1.0): `RELEASE_NOTES_v0.1.0.md`
+- Release Notes (v0.2.0): `RELEASE_NOTES_v0.2.0.md`
 - Screenshots Guide: `SCREENSHOTS.md`

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document captures baseline product and system requirements for the Autonomous Delivery Team platform (`v0.1.0`).
+This document captures baseline product and system requirements for the Autonomous Delivery Team platform (`v0.2.0`).
 
 ## Scope
 
@@ -89,7 +89,7 @@ The system simulates an autonomous software delivery team that executes from bac
 - Dashboard renders latest run with no runtime errors under standard demo flow.
 - Changelog and release notes reflect delivered behavior.
 
-## Out of Scope (v0.1.0)
+## Out of Scope (v0.2.0)
 
 - Production-grade multi-tenant security model.
 - Distributed execution orchestration.

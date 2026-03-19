@@ -215,7 +215,18 @@ def main() -> None:
     human_response = os.getenv("ASF_HUMAN_RESPONSE", "")
     resume_stage = _parse_resume_stage(os.getenv("ASF_RESUME_STAGE"))
     resume_responder = os.getenv("ASF_RESUME_RESPONDER", "human_operator")
-    resume_max_steps = max(20, _parse_int(os.getenv("ASF_RESUME_MAX_STEPS"), 120))
+    resume_response_template = os.getenv("ASF_HUMAN_RESPONSE_TEMPLATE", "")
+    # ASF_RESUME_MAX_REJECTIONS: how many more gate failures allowed before re-escalating.
+    # Each rejection adds ~6 stages; budget = (rejections * 8) + 15 to cover transitions.
+    # Falls back to ASF_RESUME_MAX_STEPS for backward compatibility.
+    _raw_rejections = os.getenv("ASF_RESUME_MAX_REJECTIONS")
+    _raw_steps = os.getenv("ASF_RESUME_MAX_STEPS")
+    if _raw_rejections is not None:
+        resume_max_steps = max(15, _parse_int(_raw_rejections, 3) * 8 + 15)
+    elif _raw_steps is not None:
+        resume_max_steps = max(15, _parse_int(_raw_steps, 39))
+    else:
+        resume_max_steps = 39  # default = 3 rejections worth of runway
     run_max_steps = resume_max_steps if resume_workflow_id else 500
     selected_backend = os.getenv("ASF_PERSISTENCE_BACKEND", "memory")
     selected_sqlite_path = os.getenv("ASF_SQLITE_PATH", "generated_workspace/asf_state.db")
@@ -240,6 +251,8 @@ def main() -> None:
                 human_response=human_response,
                 responder=resume_responder,
                 resume_stage=resume_stage,
+                response_template=resume_response_template,
+                resume_max_steps=resume_max_steps,
             )
         except KeyError:
             raise SystemExit(
@@ -266,7 +279,8 @@ def main() -> None:
     print(f"Backlog item: {backlog_item.title}")
     print(f"Demo output directory: {output_root}")
     if resume_workflow_id:
-        print(f"Resume policy: stage={resume_stage.value}, responder={resume_responder}, max_steps={run_max_steps}")
+        _rejections_equiv = (run_max_steps - 15) // 8 if run_max_steps > 15 else 1
+        print(f"Resume policy: stage={resume_stage.value}, responder={resume_responder}, max_steps={run_max_steps} (~{_rejections_equiv} rejection(s) runway)")
     print("-" * 72)
 
     startup_events = engine.event_bus.list_events(workflow_id)

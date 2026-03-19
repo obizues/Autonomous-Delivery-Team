@@ -49,20 +49,39 @@ class CodeReviewAnalyzer:
             "error_handling": self._analyze_error_handling(issues, suggestions),
             "documentation": self._analyze_documentation(issues, suggestions),
             "test_alignment": self._analyze_test_alignment(issues, suggestions),
+            "completeness": self._analyze_completeness(issues, suggestions),
         }
         
-        # Weighted average: all dimensions equally important
-        overall = sum(scores.values()) / len(scores) if scores else 0.5
+        # Weighted average: completeness and error_handling weighted slightly higher
+        weights = {"complexity": 1.0, "error_handling": 1.2, "documentation": 0.8, "test_alignment": 1.2, "completeness": 1.3}
+        total_weight = sum(weights[k] for k in scores)
+        overall = sum(scores[k] * weights[k] for k in scores) / total_weight if total_weight else 0.5
         
         return {
             "complexity_score": scores.get("complexity", 0.5),
             "error_handling_score": scores.get("error_handling", 0.5),
             "documentation_score": scores.get("documentation", 0.5),
             "test_alignment_score": scores.get("test_alignment", 0.5),
+            "completeness_score": scores.get("completeness", 0.5),
             "overall_score": overall,
             "issues": issues,
             "suggestions": suggestions,
         }
+
+    def _analyze_completeness(self, issues: list, suggestions: list) -> float:
+        """Check that implementation actually produced tangible output."""
+        files_changed = len(self.implementation.files_changed or [])
+        written = len(self.implementation.written_source_files or [])
+        if files_changed == 0 and written == 0:
+            issues.append("No source files were changed or written — implementation appears empty")
+            return 0.10
+        if files_changed == 0:
+            suggestions.append("implementation.files_changed is empty; verify patch engine recorded modified files")
+            return 0.45
+        if written == 0:
+            suggestions.append("No written_source_files recorded; verify workspace contains output")
+            return 0.55
+        return 0.90
 
     def _analyze_complexity(self, issues: list) -> float:
         """Analyze code change complexity."""
@@ -71,14 +90,14 @@ class CodeReviewAnalyzer:
         # Score based on number of files (minimal complexity is good for focused changes)
         if files_changed == 0:
             issues.append("No files were changed in implementation")
-            return 0.5
+            return 0.30
         elif files_changed == 1:
             return 0.95  # Single file changes are excellent
         elif files_changed <= 3:
             return 0.85  # Multiple files, still reasonable
         else:
             issues.append(f"High complexity: {files_changed} files modified (consider breaking into smaller PRs)")
-            return 0.65  # Still acceptable, just a note
+            return 0.60
         
     def _analyze_error_handling(self, issues: list, suggestions: list) -> float:
         """Analyze error handling patterns in code."""
@@ -120,10 +139,11 @@ class CodeReviewAnalyzer:
                 
             score = min(1.0, error_handling_indicators / (files_with_patterns * 2))
             if score < 0.4:
-                suggestions.append("Consider adding more error handling and validation (try/except, raise statements)")
-            return max(0.65, score)  # Minimum 65% if analysis runs
+                issues.append("Insufficient error handling: add try/except blocks and raise statements for invalid inputs")
+                suggestions.append("Add explicit validation with raise statements for each rejection path")
+            return max(0.40, score)  # Lower floor so truly absent error handling fails
         except Exception:
-            return 0.7
+            return 0.60
 
     def _analyze_documentation(self, issues: list, suggestions: list) -> float:
         """Analyze code documentation and comments."""
@@ -160,11 +180,12 @@ class CodeReviewAnalyzer:
             
             # Good documentation: 5-30% comments
             if comment_ratio < 0.02:
-                suggestions.append("Add more inline comments to explain complex logic")
-                score = 0.7
+                issues.append("Very low comment density — complex logic lacks inline explanation")
+                suggestions.append("Add inline comments to document business rules and non-obvious branches")
+                score = 0.55
             elif comment_ratio > 0.50:
                 suggestions.append("Consider reducing comment density; strive for self-explaining code")
-                score = 0.75
+                score = 0.70
             else:
                 score = 0.85
                 
@@ -173,7 +194,7 @@ class CodeReviewAnalyzer:
                 
             return min(1.0, score)
         except Exception:
-            return 0.75
+            return 0.65
 
     def _analyze_test_alignment(self, issues: list, suggestions: list) -> float:
         """Analyze test coverage for implemented changes."""
@@ -182,15 +203,15 @@ class CodeReviewAnalyzer:
         has_test_files = any("test" in f.lower() for f in (self.implementation.files_changed or []))
         
         if not has_pr_coverage and not has_test_files:
-            # Tests might be added separately by test_engineer, so don't reject
-            suggestions.append("Test files will be added/validated in TEST_VALIDATION_GATE")
-            return 0.7  # Reasonable optimism
+            issues.append("No test coverage indicated in PR description or files changed")
+            suggestions.append("Ensure test files reference the changed source files for TEST_VALIDATION_GATE")
+            return 0.50  # Penalise rather than silently accept
         elif has_pr_coverage and has_test_files:
             return 0.95  # Excellent: both coverage in PR and test files changed
         elif has_pr_coverage or has_test_files:
-            return 0.85  # Good: at least one indicator
+            return 0.80  # Good: at least one indicator
         else:
-            return 0.7
+            return 0.50
 
 
 class EngineerAgent(Agent):
@@ -1219,18 +1240,21 @@ def process_records(records: list[dict]) -> dict:
             analyzer = CodeReviewAnalyzer(workspace_path, implementation, pr)
             review_metrics = analyzer.analyze()
             
-            # Decision logic: Approve if overall score >= 0.5, else request changes
+            # Revision-aware threshold: stricter on repeated revisions
             overall_score = review_metrics["overall_score"]
-            decision = Decision.APPROVED if overall_score >= 0.5 else Decision.REQUEST_CHANGES
+            approval_threshold = 0.68 if revision >= 2 else 0.60
+            decision = Decision.APPROVED if overall_score >= approval_threshold else Decision.REQUEST_CHANGES
             
             # Build detailed comments with metrics
+            completeness_score = review_metrics.get("completeness_score", overall_score)
             comments_parts = [
-                f"Peer code review analysis:",
+                f"Peer code review analysis (threshold: {approval_threshold:.0%}):",
                 f"- Complexity: {review_metrics['complexity_score']:.0%}",
                 f"- Error Handling: {review_metrics['error_handling_score']:.0%}",
                 f"- Documentation: {review_metrics['documentation_score']:.0%}",
                 f"- Test Alignment: {review_metrics['test_alignment_score']:.0%}",
-                f"- Overall Score: {overall_score:.0%}",
+                f"- Completeness: {completeness_score:.0%}",
+                f"- Overall Score: {overall_score:.0%} (need ≥{approval_threshold:.0%})",
                 f"- Pull Requests Reviewed: {len(revision_prs) if revision_prs else (1 if pr else 0)}",
             ]
             if cross_review_matrix:
@@ -1241,9 +1265,11 @@ def process_records(records: list[dict]) -> dict:
                     )
             
             if decision == Decision.APPROVED:
-                comments_parts.append("✓ Changes are ready for testing and acceptance review.")
+                comments_parts.append("✓ Implementation quality meets the bar. Ready for testing and acceptance.")
             else:
-                comments_parts.append(f"✗ Score below approval threshold (need ≥50%, have {overall_score:.0%})")
+                comments_parts.append(f"✗ Score {overall_score:.0%} is below the {approval_threshold:.0%} approval threshold for revision {revision}.")
+                if revision >= 2:
+                    comments_parts.append("ℹ Stricter bar applied: revision 2+ requires 68% to ensure rework actually improved quality.")
             
             review = ReviewFeedback(
                 workflow_id=workflow_id,

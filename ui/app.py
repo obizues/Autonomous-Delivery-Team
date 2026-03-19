@@ -848,6 +848,10 @@ def render_summary_tab(
     # ── Final outcome ───────────────────────────────────────────────────────
     st.divider()
     st.markdown("#### 🏁 Final Outcome")
+    escalation_reason = latest_escalation_reason(events) if status == "ESCALATED" else None
+    if escalation_reason:
+        st.warning(f"⚠️ Escalated: {escalation_reason}")
+
     by_stage = artifacts_by_stage(artifacts)
     acceptance_arts = [
         a for a in by_stage.get("PRODUCT_ACCEPTANCE_GATE", [])
@@ -1269,6 +1273,9 @@ def render_main(
                         st.error("❌ Workflow ended in FAILED status.")
                     elif final_status == "ESCALATED":
                         st.warning("⚠️ Workflow has been escalated and requires your review and decision.")
+                        escalation_reason = latest_escalation_reason(events)
+                        if escalation_reason:
+                            st.caption(f"Escalation reason: {escalation_reason}")
                     else:
                         st.info(f"Workflow terminal status: {final_status}")
 

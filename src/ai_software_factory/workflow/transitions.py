@@ -9,6 +9,7 @@ WORKFLOW_SEQUENCE: list[WorkflowStage] = [
     WorkflowStage.ARCHITECTURE_DESIGN,
     WorkflowStage.IMPLEMENTATION,
     WorkflowStage.PULL_REQUEST_CREATED,
+    WorkflowStage.MERGE_CONFLICT_GATE,
     WorkflowStage.ARCHITECTURE_REVIEW_GATE,
     WorkflowStage.PEER_CODE_REVIEW_GATE,
     WorkflowStage.TEST_VALIDATION_GATE,
@@ -17,6 +18,7 @@ WORKFLOW_SEQUENCE: list[WorkflowStage] = [
 ]
 
 REVIEW_GATES: set[WorkflowStage] = {
+    WorkflowStage.MERGE_CONFLICT_GATE,
     WorkflowStage.ARCHITECTURE_REVIEW_GATE,
     WorkflowStage.PEER_CODE_REVIEW_GATE,
     WorkflowStage.TEST_VALIDATION_GATE,
@@ -30,6 +32,7 @@ STAGE_TO_ROLE: dict[WorkflowStage, str] = {
     WorkflowStage.ARCHITECTURE_DESIGN: "architect",
     WorkflowStage.IMPLEMENTATION: "engineer",
     WorkflowStage.PULL_REQUEST_CREATED: "engineer",
+    WorkflowStage.MERGE_CONFLICT_GATE: "engineer",
     WorkflowStage.ARCHITECTURE_REVIEW_GATE: "architect",
     WorkflowStage.PEER_CODE_REVIEW_GATE: "engineer",
     WorkflowStage.TEST_VALIDATION_GATE: "test_engineer",

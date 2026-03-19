@@ -1272,6 +1272,111 @@ def process_records(records: list[dict]) -> dict:
             )
             return StageResult(produced_artifacts=[review], decision=Decision.APPROVED, notes="Peer code review completed (fallback).")
 
+    def _merge_conflict_gate_stage(self, context: AgentContext) -> StageResult:
+        state = context.workflow_state
+        workflow_id = state.workflow_id
+        revision = state.revision
+
+        implementation = context.latest(CodeImplementation)
+        revision_prs = [
+            artifact
+            for artifact in context.artifacts
+            if isinstance(artifact, PullRequest) and artifact.version == revision
+        ]
+        primary_pr = revision_prs[-1] if revision_prs else context.latest(PullRequest)
+
+        if not revision_prs:
+            review = ReviewFeedback(
+                workflow_id=workflow_id,
+                stage=state.current_stage,
+                created_by=self.role,
+                status=ArtifactStatus.FINAL,
+                version=revision,
+                reviewer="merge_conflict_guard",
+                decision=Decision.REQUEST_CHANGES,
+                comments="Merge conflict gate failed: no pull request artifacts found for this revision.",
+                issues_identified=["Missing pull request artifacts for merge validation"],
+                suggested_changes=["Complete PULL_REQUEST_CREATED stage before merge conflict gate"],
+                pull_request_id=primary_pr.artifact_id if primary_pr else None,
+            )
+            return StageResult(
+                produced_artifacts=[review],
+                decision=Decision.REQUEST_CHANGES,
+                notes="Merge conflict gate failed: missing pull request artifacts.",
+            )
+
+        lane_file_owners: dict[str, set[str]] = {}
+        for pr in revision_prs:
+            lane_id = self._extract_lane_id_from_pr(pr) or "engineer_unknown"
+            for file_name in pr.files_modified:
+                lane_file_owners.setdefault(file_name, set()).add(lane_id)
+
+        overlapping_files = sorted(
+            file_name
+            for file_name, owners in lane_file_owners.items()
+            if len(owners) > 1
+        )
+
+        conflict_marker_files: list[str] = []
+        if implementation is not None and implementation.workspace_path:
+            workspace_path = Path(implementation.workspace_path)
+            candidate_files = sorted(lane_file_owners.keys())
+            for relative_file in candidate_files:
+                file_path = workspace_path / relative_file
+                if not file_path.exists() or not file_path.is_file():
+                    continue
+                content = file_path.read_text(encoding="utf-8", errors="ignore")
+                if "<<<<<<<" in content and "=======" in content and ">>>>>>>" in content:
+                    conflict_marker_files.append(relative_file)
+
+        has_conflicts = bool(overlapping_files or conflict_marker_files)
+        decision = Decision.REQUEST_CHANGES if has_conflicts else Decision.APPROVED
+
+        comments_parts = [
+            "Merge conflict gate analysis:",
+            f"- Pull requests inspected: {len(revision_prs)}",
+            f"- Files with multi-lane overlap: {len(overlapping_files)}",
+            f"- Files containing merge markers: {len(conflict_marker_files)}",
+        ]
+        if has_conflicts:
+            comments_parts.append("✗ Merge conflicts detected. Resolve overlaps/markers before proceeding.")
+        else:
+            comments_parts.append("✓ No merge conflicts detected. Safe to continue to architecture review.")
+
+        issues_identified: list[str] = []
+        if overlapping_files:
+            issues_identified.extend(
+                [f"Cross-lane file overlap: {file_name}" for file_name in overlapping_files]
+            )
+        if conflict_marker_files:
+            issues_identified.extend(
+                [f"Conflict marker found: {file_name}" for file_name in conflict_marker_files]
+            )
+
+        suggested_changes: list[str] = []
+        if has_conflicts:
+            suggested_changes = [
+                "Repartition lane ownership so each file has a single lane owner",
+                "Resolve git conflict markers and rerun merge conflict gate",
+            ]
+
+        review = ReviewFeedback(
+            workflow_id=workflow_id,
+            stage=state.current_stage,
+            created_by=self.role,
+            status=ArtifactStatus.FINAL,
+            version=revision,
+            reviewer="merge_conflict_guard",
+            decision=decision,
+            comments="\n".join(comments_parts),
+            issues_identified=issues_identified,
+            suggested_changes=suggested_changes,
+            pull_request_id=primary_pr.artifact_id if primary_pr else None,
+        )
+
+        notes = "Merge conflict gate passed." if decision == Decision.APPROVED else "Merge conflict gate requested changes."
+        return StageResult(produced_artifacts=[review], decision=decision, notes=notes)
+
     def act(self, context: AgentContext) -> StageResult:
         stage = context.workflow_state.current_stage
 
@@ -1279,6 +1384,8 @@ def process_records(records: list[dict]) -> dict:
             return self._implementation_stage(context)
         if stage == WorkflowStage.PULL_REQUEST_CREATED:
             return self._pull_request_stage(context)
+        if stage == WorkflowStage.MERGE_CONFLICT_GATE:
+            return self._merge_conflict_gate_stage(context)
         if stage == WorkflowStage.PEER_CODE_REVIEW_GATE:
             return self._peer_review_stage(context)
 

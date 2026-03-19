@@ -219,6 +219,7 @@ def render_workflow_graph_tab(readme: dict, events: list[dict], snapshots: dict)
         show_revision = stage_counts.get(stage, 0) > 1 or stage in {
             "IMPLEMENTATION",
             "PULL_REQUEST_CREATED",
+            "MERGE_CONFLICT_GATE",
             "ARCHITECTURE_REVIEW_GATE",
             "PEER_CODE_REVIEW_GATE",
             "TEST_VALIDATION_GATE",

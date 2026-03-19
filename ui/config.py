@@ -17,6 +17,7 @@ STAGE_ORDER = [
     "ARCHITECTURE_DESIGN",
     "IMPLEMENTATION",
     "PULL_REQUEST_CREATED",
+    "MERGE_CONFLICT_GATE",
     "ARCHITECTURE_REVIEW_GATE",
     "PEER_CODE_REVIEW_GATE",
     "TEST_VALIDATION_GATE",
@@ -31,6 +32,7 @@ STAGE_META: dict[str, tuple[str, str, str]] = {
     "ARCHITECTURE_DESIGN":      ("🏗️", "Architecture Design",      "Architect"),
     "IMPLEMENTATION":           ("💻", "Implementation",           "Engineer"),
     "PULL_REQUEST_CREATED":     ("🔀", "Pull Request",             "Engineer"),
+    "MERGE_CONFLICT_GATE":      ("🧷", "Merge Conflict Gate",      "Engineer"),
     "ARCHITECTURE_REVIEW_GATE": ("🏛️", "Architecture Review",     "Architect"),
     "PEER_CODE_REVIEW_GATE":    ("👥", "Peer Code Review",         "Engineer"),
     "TEST_VALIDATION_GATE":     ("🧪", "Test Validation",          "Test Engineer"),
@@ -39,6 +41,7 @@ STAGE_META: dict[str, tuple[str, str, str]] = {
 }
 
 REVIEW_GATES = {
+    "MERGE_CONFLICT_GATE",
     "ARCHITECTURE_REVIEW_GATE",
     "PEER_CODE_REVIEW_GATE",
     "TEST_VALIDATION_GATE",

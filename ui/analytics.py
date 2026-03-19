@@ -148,6 +148,7 @@ def extract_key_decisions(artifacts: list[dict], events: list[dict]) -> list[dic
     result = []
 
     gate_labels = {
+        "MERGE_CONFLICT_GATE":      "Merge Conflict Gate",
         "ARCHITECTURE_REVIEW_GATE": "Architecture Review",
         "PEER_CODE_REVIEW_GATE":    "Peer Code Review",
         "TEST_VALIDATION_GATE":     "Test Validation",
@@ -173,10 +174,11 @@ def extract_key_decisions(artifacts: list[dict], events: list[dict]) -> list[dic
             })
 
     gate_order_index = {
-        "Architecture Review": 0,
-        "Peer Code Review":    1,
-        "Test Validation":     2,
-        "Product Acceptance":  3,
+        "Merge Conflict Gate": 0,
+        "Architecture Review": 1,
+        "Peer Code Review":    2,
+        "Test Validation":     3,
+        "Product Acceptance":  4,
     }
     result.sort(key=lambda item: (
         gate_order_index.get(str(item.get("gate", "")), 999),
@@ -191,6 +193,7 @@ def extract_key_issues(artifacts: list[dict], events: list[dict]) -> list[dict]:
     by_stage = artifacts_by_stage(artifacts)
 
     gate_sequence = [
+        "MERGE_CONFLICT_GATE",
         "ARCHITECTURE_REVIEW_GATE",
         "PEER_CODE_REVIEW_GATE",
         "TEST_VALIDATION_GATE",

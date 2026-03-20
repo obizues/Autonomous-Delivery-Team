@@ -1,0 +1,73 @@
+# Autonomous Delivery Workflow Policy
+
+version: v0.3.1
+policy_id: default
+
+revision_budget: 5
+rejection_runway: 3
+escalation_triggers:
+  - gate_failure
+  - revision_exhaustion
+  - operator_request
+
+stages:
+  BACKLOG_INTAKE:
+    gate_policy:
+      min_artifacts: 1
+      allow_empty: false
+  PRODUCT_DEFINITION:
+    gate_policy:
+      min_artifacts: 1
+      allow_empty: false
+  REQUIREMENTS_ANALYSIS:
+    gate_policy:
+      min_artifacts: 1
+      allow_empty: false
+  ARCHITECTURE_DESIGN:
+    gate_policy:
+      min_artifacts: 1
+      allow_empty: false
+  IMPLEMENTATION:
+    gate_policy:
+      min_artifacts: 1
+      allow_empty: false
+  PULL_REQUEST_CREATED:
+    gate_policy:
+      min_artifacts: 1
+      allow_empty: false
+  MERGE_CONFLICT_GATE:
+    gate_policy:
+      approval_threshold: 0.8
+      max_retries: 2
+  ARCHITECTURE_REVIEW_GATE:
+    gate_policy:
+      approval_threshold: 0.8
+      max_retries: 2
+  PEER_CODE_REVIEW_GATE:
+    gate_policy:
+      approval_threshold: 0.8
+      max_retries: 2
+  TEST_VALIDATION_GATE:
+    gate_policy:
+      approval_threshold: 0.8
+      max_retries: 2
+  PRODUCT_ACCEPTANCE_GATE:
+    gate_policy:
+      approval_threshold: 0.8
+      max_retries: 2
+
+escalation_modes:
+  abandon:
+    terminal: true
+    rationale: "Explicit non-recoverable status and reason taxonomy."
+  best_effort:
+    terminal: false
+    rationale: "Constrained deliverable package without full acceptance."
+
+policy_versioning:
+  enabled: true
+  snapshot_on_run: true
+
+validation:
+  fail_fast: true
+  schema_check: true

@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from dataclasses import asdict
 from datetime import datetime, timezone
 
@@ -21,7 +20,6 @@ from ai_software_factory.persistence.state_store import StateStore
 from ai_software_factory.workflow.state import WorkflowState
 from ai_software_factory.workflow.transitions import STAGE_TO_ROLE, default_next_stage, is_review_gate
 
-
 class WorkflowEngine:
     def __init__(
         self,
@@ -32,6 +30,8 @@ class WorkflowEngine:
         approval_service: ApprovalService,
         escalation_service: EscalationService,
         max_revisions: int = 3,
+        policy_manager=None,
+        repo_paths: list[str] = None,
     ) -> None:
         self.state_store = state_store
         self.artifact_store = artifact_store
@@ -40,6 +40,88 @@ class WorkflowEngine:
         self.approval_service = approval_service
         self.escalation_service = escalation_service
         self.max_revisions = max_revisions
+        from ai_software_factory.governance.policy import PolicyManager
+        self.policy_manager = policy_manager or PolicyManager()
+        self.repo_paths = repo_paths or []
+
+    def start(self, backlog_item):
+        """
+        Start a new workflow for the given backlog item and return the initial WorkflowState.
+        """
+        from ai_software_factory.workflow.state import WorkflowState
+        from ai_software_factory.domain.enums import WorkflowStatus, WorkflowStage
+        import uuid
+        workflow_id = str(uuid.uuid4())
+        state = WorkflowState(
+            backlog_item_id=backlog_item.artifact_id,
+            workflow_id=workflow_id,
+            current_stage=WorkflowStage.IMPLEMENTATION,
+            status=WorkflowStatus.IN_PROGRESS,
+            revision=1,
+            artifact_ids=[backlog_item.artifact_id],
+            stage_history=[],
+            last_updated_at=datetime.now(timezone.utc),
+        )
+        self.state_store.save(state)
+        self.event_bus.emit(
+            workflow_id=workflow_id,
+            event_type=EventType.WORKFLOW_STARTED,
+            stage=WorkflowStage.IMPLEMENTATION,
+            payload={"backlog_item_id": backlog_item.artifact_id},
+        )
+        self.event_bus.emit(
+            workflow_id=workflow_id,
+            event_type=EventType.ARTIFACT_CREATED,
+            stage=WorkflowStage.IMPLEMENTATION,
+            payload={
+                "artifact_id": backlog_item.artifact_id,
+                "artifact_type": backlog_item.__class__.__name__,
+            },
+        )
+        return state
+        self.max_revisions = max_revisions
+        from ai_software_factory.governance.policy import PolicyManager
+        self.policy_manager = policy_manager or PolicyManager()
+        self.repo_paths = repo_paths or []
+
+    def ingest_repos(self, repo_paths: list[str]):
+        """
+        Ingest and profile multiple repositories, generating capability reports for each.
+        """
+        from ai_software_factory.artifacts.repo_profiler import RepoCapabilityProfiler
+        import os
+        import json
+        reports = {}
+        for repo_path in repo_paths:
+            try:
+                profiler = RepoCapabilityProfiler(repo_path=repo_path)
+                capability_report = profiler.profile()
+                report_filename = f"repo_capability_report_{os.path.basename(repo_path)}.json"
+                report_path = os.path.join("demo_output", report_filename)
+                with open(report_path, "w") as f:
+                    json.dump(capability_report, f, indent=2)
+                reports[repo_path] = report_path
+                self.event_bus.emit(
+                    workflow_id=None,
+                    event_type=EventType.ARTIFACT_CREATED,
+                    stage=None,
+                    payload={
+                        "artifact_id": report_filename,
+                        "artifact_type": "RepoCapabilityReport",
+                        "repo_path": repo_path,
+                    },
+                )
+            except Exception as e:
+                print(f"[Profiler] Failed to generate capability report for {repo_path}: {e}")
+        return reports
+    def get_policy(self):
+        return self.policy_manager.policy
+
+    def get_gate_policy(self, stage):
+        return self.policy_manager.get_gate_policy(stage)
+
+    def get_revision_budget(self):
+        return self.policy_manager.get_revision_budget()
 
     def _recent_test_results(self, workflow_id: str, count: int = 3) -> list[TestResult]:
         artifacts = self.artifact_store.list_by_workflow(workflow_id)
@@ -195,87 +277,79 @@ class WorkflowEngine:
         )
 
         previous_stage = state.current_stage
-        state.status = WorkflowStatus.IN_PROGRESS
-        state.revision += 1
-        state.current_stage = resume_stage
-        state.last_updated_at = datetime.now(timezone.utc)
-        self.state_store.save(state)
+        if state.status != WorkflowStatus.IN_PROGRESS:
+            return state
 
-        self.event_bus.emit(
-            workflow_id=workflow_id,
-            event_type=EventType.HUMAN_FEEDBACK_RECORDED,
-            stage=WorkflowStage.DONE,
-            payload={
-                "escalation_id": escalation.artifact_id,
-                "responder": responder,
-                "response": human_response,
-                "response_template": response_template,
-            },
-        )
-        self.event_bus.emit(
-            workflow_id=workflow_id,
-            event_type=EventType.ESCALATION_RESOLVED,
-            stage=WorkflowStage.DONE,
-            payload={
-                "escalation_id": escalation.artifact_id,
-                "resume_stage": resume_stage.value,
-            },
-        )
-        self.event_bus.emit(
-            workflow_id=workflow_id,
-            event_type=EventType.WORKFLOW_RESUMED,
-            stage=resume_stage,
-            payload={
-                "from_stage": previous_stage.value,
-                "to_stage": resume_stage.value,
-                "new_revision": state.revision,
-                "responder": responder,
-                "response_template": response_template,
-                "resume_max_steps": resume_max_steps,
-            },
-        )
-        self.event_bus.emit(
-            workflow_id=workflow_id,
-            event_type=EventType.REVISION_STARTED,
-            stage=resume_stage,
-            payload={
-                "old_revision": state.revision - 1,
-                "new_revision": state.revision,
-                "reason": f"Human intervention resume: {human_response}",
-            },
-        )
-        return state
+        stage = state.current_stage
+        self.event_bus.emit(workflow_id=state.workflow_id, event_type=EventType.STAGE_STARTED, stage=stage)
+        role = STAGE_TO_ROLE.get(stage)
+        # Policy-driven gate policy
+        gate_policy = self.get_gate_policy(str(stage))
+        # Example: enforce min_artifacts if specified
+        min_artifacts = gate_policy.get("min_artifacts")
+        if min_artifacts is not None:
+            artifacts = self.artifact_store.list_by_workflow(state.workflow_id)
+            if len(artifacts) < min_artifacts:
+                state.status = WorkflowStatus.ESCALATED
+                self.state_store.save(state)
+                return state
 
-    def start(self, backlog_item: BacklogItem) -> WorkflowState:
-        state = WorkflowState(backlog_item_id=backlog_item.artifact_id)
-        backlog_item.workflow_id = state.workflow_id
-        backlog_item.stage = WorkflowStage.BACKLOG_INTAKE
-        self.artifact_store.save(backlog_item)
-        state.artifact_ids.append(backlog_item.artifact_id)
-        self.state_store.save(state)
+        if role is None:
+            latest_gate_decisions = self._latest_gate_feedback_decisions(state.workflow_id)
+            unresolved_gates = [
+                gate.value
+                for gate, decision in latest_gate_decisions.items()
+                if decision == Decision.REQUEST_CHANGES
+            ]
+            if unresolved_gates:
+                self._record_escalation(
+                    state=state,
+                    stage=stage,
+                    reason=(
+                        "⛔ Completion blocked: latest gate decision still requests changes for "
+                        + ", ".join(sorted(unresolved_gates))
+                        + ". Workflow cannot enter DONE until all latest gate decisions are APPROVED."
+                    ),
+                    raised_by="workflow_engine",
+                    extra_payload={"unresolved_gates": unresolved_gates},
+                )
+                state.current_stage = WorkflowStage.DONE
+                state.status = WorkflowStatus.ESCALATED
+                self.state_store.save(state)
+                return state
 
-        # --- Repo Capability Profiler Integration ---
-        try:
-            from ai_software_factory.artifacts.repo_profiler import RepoCapabilityProfiler
-            repo_path = os.path.abspath(os.getcwd())
-            profiler = RepoCapabilityProfiler(repo_path=repo_path)
-            capability_report = profiler.profile()
-            import json
-            report_path = os.path.join("demo_output", "repo_capability_report.json")
-            with open(report_path, "w") as f:
-                json.dump(capability_report, f, indent=2)
-            # Optionally, emit event for artifact creation
+            state.current_stage = WorkflowStage.DONE
+            state.status = WorkflowStatus.COMPLETED
+            self.state_store.save(state)
+            return state
+
+        agent = self.agents[role]
+        context = AgentContext(workflow_state=state, artifacts=self.artifact_store.list_by_workflow(state.workflow_id))
+        result = agent.act(context)
+
+        for artifact in result.produced_artifacts:
+            self.artifact_store.save(artifact)
+            state.artifact_ids.append(artifact.artifact_id)
+            if isinstance(artifact, PullRequest):
+                state.pull_request_ids.append(artifact.artifact_id)
+            if isinstance(artifact, ReviewFeedback):
+                state.review_feedback_ids.append(artifact.artifact_id)
             self.event_bus.emit(
                 workflow_id=state.workflow_id,
                 event_type=EventType.ARTIFACT_CREATED,
-                stage=state.current_stage,
-                payload={
-                    "artifact_id": "repo_capability_report.json",
-                    "artifact_type": "RepoCapabilityReport",
-                },
+                stage=stage,
+                payload={"artifact_id": artifact.artifact_id, "artifact_type": artifact.__class__.__name__},
             )
-        except Exception as e:
-            print(f"[Profiler] Failed to generate capability report: {e}")
+
+        # Policy-driven revision budget check
+        revision_budget = self.get_revision_budget()
+        if state.revision > revision_budget:
+            state.status = WorkflowStatus.ESCALATED
+            self.state_store.save(state)
+            return state
+
+        self.state_store.save(state)
+        return state
 
         self.event_bus.emit(
             workflow_id=state.workflow_id,

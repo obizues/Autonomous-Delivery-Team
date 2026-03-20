@@ -1,26 +1,32 @@
+import yaml
+from pathlib import Path
+
 class PolicyManager:
-    def __init__(self, config=None):
-        self.config = config or {}
+    def __init__(self, policy_path: str = "config/workflow_policy.yaml"):
+        self.policy_path = Path(policy_path)
+        self.policy = self.load_policy()
 
-    def load(self, path):
-        # Stub: pretend to load policy config
-        import json
-        try:
-            with open(path, 'r') as f:
-                self.config = json.load(f)
-        except Exception:
-            self.config = {"policy": "default"}
-        return self.config
+    def load_policy(self):
+        with open(self.policy_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
 
-    def adapt(self, context):
-        # Stub: return adapted config
-        return {"policy": "adapted", "context": context}
+    def get_gate_policy(self, stage: str):
+        return self.policy.get("stages", {}).get(stage, {}).get("gate_policy", {})
 
-    def get_config(self):
-        return self.config
+    def get_revision_budget(self):
+        return self.policy.get("revision_budget", 5)
 
-    def get(self, key):
-        return self.config.get(key)
+    def get_escalation_triggers(self):
+        return self.policy.get("escalation_triggers", [])
 
-    def set(self, key, value):
-        self.config[key] = value
+    def get_escalation_modes(self):
+        return self.policy.get("escalation_modes", {})
+
+    def get_policy_version(self):
+        return self.policy.get("version", "unknown")
+
+    def validate(self):
+        # Basic schema check
+        assert "stages" in self.policy, "Policy missing stages section"
+        assert "revision_budget" in self.policy, "Policy missing revision_budget"
+        return True

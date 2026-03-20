@@ -22,7 +22,6 @@ class ArtifactStore(Protocol):
     def list_by_stage(self, workflow_id: str, stage: WorkflowStage) -> list[BaseArtifact]:
         ...
 
-
 class InMemoryArtifactStore:
     def __init__(self) -> None:
         self._artifacts: dict[str, BaseArtifact] = {}

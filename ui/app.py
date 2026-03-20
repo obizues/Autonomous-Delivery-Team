@@ -522,42 +522,24 @@ def render_revision_insights_tab(readme: dict, artifacts: list[dict], events: li
     trend_rows = quality_trends_by_revision(artifacts)
     if trend_rows:
         st.markdown("#### 📈 Quality Trends by Revision")
-        score_chart_rows = [
+        # Combine peer/arch score and failed tests in one chart
+        combined_chart_rows = [
             {
                 "revision": row.get("revision"),
                 "peer_score_pct": row.get("peer_score_pct"),
                 "arch_score_pct": row.get("arch_score_pct"),
-            }
-            for row in trend_rows
-            if isinstance(row.get("revision"), int)
-        ]
-        test_chart_rows = [
-            {
-                "revision": row.get("revision"),
                 "failed_tests": row.get("failed_tests"),
             }
             for row in trend_rows
             if isinstance(row.get("revision"), int)
         ]
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Peer + Architecture Score Trend**")
-            st.line_chart(
-                score_chart_rows,
-                x="revision",
-                y=["peer_score_pct", "arch_score_pct"],
-                width="stretch",
-            )
-        with c2:
-            st.markdown("**Failed Tests Trend**")
-            st.line_chart(
-                test_chart_rows,
-                x="revision",
-                y="failed_tests",
-                width="stretch",
-            )
-
+        st.markdown("**Peer + Architecture Score and Failed Tests Trend**")
+        st.line_chart(
+            combined_chart_rows,
+            x="revision",
+            y=["peer_score_pct", "arch_score_pct", "failed_tests"],
+            width="stretch",
+        )
         st.dataframe(
             trend_rows,
             width="stretch",

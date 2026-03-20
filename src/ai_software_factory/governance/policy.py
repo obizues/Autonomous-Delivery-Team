@@ -10,6 +10,18 @@ class PolicyManager:
         with open(self.policy_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
 
+    def load(self, policy_path):
+        self.policy_path = Path(policy_path)
+        self.policy = self.load_policy()
+        return self.policy
+
+    def set(self, key, value):
+        self.policy[key] = value
+        return self.policy
+
+    def get(self, key):
+        return self.policy.get(key)
+
     def get_gate_policy(self, stage: str):
         return self.policy.get("stages", {}).get(stage, {}).get("gate_policy", {})
 
@@ -30,3 +42,13 @@ class PolicyManager:
         assert "stages" in self.policy, "Policy missing stages section"
         assert "revision_budget" in self.policy, "Policy missing revision_budget"
         return True
+
+class GatePolicyEvaluator:
+    def __init__(self, policy_manager):
+        self.policy_manager = policy_manager
+
+    def get_gate_policy(self, stage):
+        return self.policy_manager.get_gate_policy(stage)
+
+    def get_revision_budget(self):
+        return self.policy_manager.get_revision_budget()

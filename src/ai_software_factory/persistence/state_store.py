@@ -8,13 +8,13 @@ class StateStore:
     def load(self, workflow_id):
         return self._store.get(workflow_id)
 
-class ArtifactStore:
+class InMemoryStateStore:
     def __init__(self):
-        self._artifacts = {}
-    def save(self, artifact):
-        self._artifacts[getattr(artifact, 'artifact_id', None)] = artifact
-    def load(self, artifact_id):
-        return self._artifacts.get(artifact_id)
+        self._states = {}
+    def save(self, state):
+        self._states[state.workflow_id] = state
+    def load(self, workflow_id):
+        return self._states.get(workflow_id)
 import pickle
 import sqlite3
 from pathlib import Path

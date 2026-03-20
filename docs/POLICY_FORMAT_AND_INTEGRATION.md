@@ -5,7 +5,7 @@
 
 ## Format (YAML)
 ```
-version: v0.3.2
+version: v0.4
 policy_id: default
 revision_budget: 5
 rejection_runway: 3

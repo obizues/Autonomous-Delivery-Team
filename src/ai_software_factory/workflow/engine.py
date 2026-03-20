@@ -79,91 +79,6 @@ class WorkflowEngine:
             },
         )
         return state
-        self.max_revisions = max_revisions
-        from ai_software_factory.governance.policy import PolicyManager
-        self.policy_manager = policy_manager or PolicyManager()
-        self.repo_paths = repo_paths or []
-
-    def ingest_repos(self, repo_paths: list[str]):
-        """
-        Ingest and profile multiple repositories, generating capability reports for each.
-        """
-        from ai_software_factory.artifacts.repo_profiler import RepoCapabilityProfiler
-        import os
-        import json
-        reports = {}
-        for repo_path in repo_paths:
-            try:
-                profiler = RepoCapabilityProfiler(repo_path=repo_path)
-                capability_report = profiler.profile()
-                report_filename = f"repo_capability_report_{os.path.basename(repo_path)}.json"
-                report_path = os.path.join("demo_output", report_filename)
-                with open(report_path, "w") as f:
-                    json.dump(capability_report, f, indent=2)
-                reports[repo_path] = report_path
-                self.event_bus.emit(
-                    workflow_id=None,
-                    event_type=EventType.ARTIFACT_CREATED,
-                    stage=None,
-                    payload={
-                        "artifact_id": report_filename,
-                        "artifact_type": "RepoCapabilityReport",
-                        "repo_path": repo_path,
-                    },
-                )
-            except Exception as e:
-                print(f"[Profiler] Failed to generate capability report for {repo_path}: {e}")
-        return reports
-    def get_policy(self):
-        return self.policy_manager.policy
-
-    def get_gate_policy(self, stage):
-        return self.policy_manager.get_gate_policy(stage)
-
-    def get_revision_budget(self):
-        return self.policy_manager.get_revision_budget()
-
-    def _recent_test_results(self, workflow_id: str, count: int = 3) -> list[TestResult]:
-        artifacts = self.artifact_store.list_by_workflow(workflow_id)
-        tests = [artifact for artifact in artifacts if isinstance(artifact, TestResult)]
-        return tests[-count:]
-
-    def _build_progress_summary(self, workflow_id: str) -> dict[str, object]:
-        tests = self._recent_test_results(workflow_id, count=3)
-        if not tests:
-            return {
-                "failures_reduced": 0,
-                "no_new_failures": True,
-                "stable_pass_streak": 0,
-                "stalled": False,
-            }
-
-        latest = tests[-1]
-        previous = tests[-2] if len(tests) >= 2 else None
-        failures_reduced = int(getattr(latest, "failures_reduced", 0))
-        if previous is not None and failures_reduced == 0:
-            failures_reduced = max(0, int(previous.failed_cases) - int(latest.failed_cases))
-
-        no_new_failures = not bool(getattr(latest, "regression_detected", False))
-        stable_pass_streak = int(getattr(latest, "stable_pass_streak", 1 if latest.passed else 0))
-
-        stalled = False
-        if len(tests) >= 2:
-            newest = tests[-1]
-            older = tests[-2]
-            if (
-                int(newest.failed_cases) >= int(older.failed_cases)
-                and not newest.passed
-                and not older.passed
-            ):
-                stalled = True
-
-        return {
-            "failures_reduced": failures_reduced,
-            "no_new_failures": no_new_failures,
-            "stable_pass_streak": stable_pass_streak,
-            "stalled": stalled,
-        }
 
     def _record_escalation(
         self,
@@ -231,148 +146,36 @@ class WorkflowEngine:
         workflow_id: str,
         human_response: str,
         responder: str = "human_operator",
-        resume_stage: WorkflowStage = WorkflowStage.IMPLEMENTATION,
+        resume_stage: WorkflowStage = None,
         response_template: str = "",
         resume_max_steps: int = 120,
     ) -> WorkflowState:
         state = self.state_store.load(workflow_id)
-        if state.status != WorkflowStatus.ESCALATED:
+        if state.status != "ESCALATED":
             raise ValueError(f"Workflow {workflow_id} is not escalated.")
-
-        escalation = self.latest_escalation(workflow_id)
+        # Patch: Find escalation artifact
+        escalation = None
+        for artifact in self.artifact_store.list_by_workflow(workflow_id):
+            if getattr(artifact, "stage", None) == state.current_stage:
+                escalation = artifact
+                break
         if escalation is None:
             raise ValueError(f"Workflow {workflow_id} has no escalation artifact to resolve.")
-
         escalation.human_response = human_response
-        escalation.escalation_status = EscalationStatus.RESOLVED
+        escalation.escalation_status = "RESOLVED"
         escalation.resolved_at = datetime.now(timezone.utc)
-        escalation.resolution_summary = f"Human response recorded. Resume from {resume_stage.value}."
+        escalation.resolution_summary = f"Human response recorded. Resume from {resume_stage.value if resume_stage else state.current_stage}."
         self.artifact_store.save(escalation)
-
-        intervention = HumanIntervention(
-            workflow_id=workflow_id,
-            stage=WorkflowStage.DONE,
-            created_by=responder,
-            version=state.revision + 1,
-            escalation_artifact_id=escalation.artifact_id,
-            responder=responder,
-            response=human_response,
-            response_template=response_template,
-            desired_outcome="resume_workflow",
-            resume_stage=resume_stage,
-            resume_max_steps=resume_max_steps,
-            resolution_notes=[
-                f"Escalation resolved by {responder}",
-                f"Workflow will resume from {resume_stage.value}",
-                f"Resume max steps: {resume_max_steps}",
-            ],
-        )
-        self.artifact_store.save(intervention)
-        state.artifact_ids.append(intervention.artifact_id)
-        self.event_bus.emit(
-            workflow_id=workflow_id,
-            event_type=EventType.ARTIFACT_CREATED,
-            stage=WorkflowStage.DONE,
-            payload={"artifact_id": intervention.artifact_id, "artifact_type": intervention.__class__.__name__},
-        )
-
-        previous_stage = state.current_stage
-        if state.status != WorkflowStatus.IN_PROGRESS:
-            return state
-
-        stage = state.current_stage
-        self.event_bus.emit(workflow_id=state.workflow_id, event_type=EventType.STAGE_STARTED, stage=stage)
-        role = STAGE_TO_ROLE.get(stage)
-        # Policy-driven gate policy
-        gate_policy = self.get_gate_policy(str(stage))
-        # Example: enforce min_artifacts if specified
-        min_artifacts = gate_policy.get("min_artifacts")
-        if min_artifacts is not None:
-            artifacts = self.artifact_store.list_by_workflow(state.workflow_id)
-            if len(artifacts) < min_artifacts:
-                state.status = WorkflowStatus.ESCALATED
-                self.state_store.save(state)
-                return state
-
-        if role is None:
-            latest_gate_decisions = self._latest_gate_feedback_decisions(state.workflow_id)
-            unresolved_gates = [
-                gate.value
-                for gate, decision in latest_gate_decisions.items()
-                if decision == Decision.REQUEST_CHANGES
-            ]
-            if unresolved_gates:
-                self._record_escalation(
-                    state=state,
-                    stage=stage,
-                    reason=(
-                        "⛔ Completion blocked: latest gate decision still requests changes for "
-                        + ", ".join(sorted(unresolved_gates))
-                        + ". Workflow cannot enter DONE until all latest gate decisions are APPROVED."
-                    ),
-                    raised_by="workflow_engine",
-                    extra_payload={"unresolved_gates": unresolved_gates},
-                )
-                state.current_stage = WorkflowStage.DONE
-                state.status = WorkflowStatus.ESCALATED
-                self.state_store.save(state)
-                return state
-
-            state.current_stage = WorkflowStage.DONE
-            state.status = WorkflowStatus.COMPLETED
-            self.state_store.save(state)
-            return state
-
-        agent = self.agents[role]
-        context = AgentContext(workflow_state=state, artifacts=self.artifact_store.list_by_workflow(state.workflow_id))
-        result = agent.act(context)
-
-        for artifact in result.produced_artifacts:
-            self.artifact_store.save(artifact)
-            state.artifact_ids.append(artifact.artifact_id)
-            if isinstance(artifact, PullRequest):
-                state.pull_request_ids.append(artifact.artifact_id)
-            if isinstance(artifact, ReviewFeedback):
-                state.review_feedback_ids.append(artifact.artifact_id)
-            self.event_bus.emit(
-                workflow_id=state.workflow_id,
-                event_type=EventType.ARTIFACT_CREATED,
-                stage=stage,
-                payload={"artifact_id": artifact.artifact_id, "artifact_type": artifact.__class__.__name__},
-            )
-
-        # Policy-driven revision budget check
-        revision_budget = self.get_revision_budget()
-        if state.revision > revision_budget:
-            state.status = WorkflowStatus.ESCALATED
-            self.state_store.save(state)
-            return state
-
+        state.status = "IN_PROGRESS"
         self.state_store.save(state)
-        return state
-
-        self.event_bus.emit(
-            workflow_id=state.workflow_id,
-            event_type=EventType.WORKFLOW_STARTED,
-            stage=state.current_stage,
-            payload={"backlog_item_id": backlog_item.artifact_id},
-        )
-        self.event_bus.emit(
-            workflow_id=state.workflow_id,
-            event_type=EventType.ARTIFACT_CREATED,
-            stage=state.current_stage,
-            payload={
-                "artifact_id": backlog_item.artifact_id,
-                "artifact_type": backlog_item.__class__.__name__,
-            },
-        )
         return state
 
     def execute_next(self, workflow_id: str) -> WorkflowState:
         state = self.state_store.load(workflow_id)
+        if state is None:
+            return None
         if state.status != WorkflowStatus.IN_PROGRESS:
             return state
-
         stage = state.current_stage
         self.event_bus.emit(workflow_id=state.workflow_id, event_type=EventType.STAGE_STARTED, stage=stage)
 
@@ -548,6 +351,41 @@ class WorkflowEngine:
             payload={"stage_result": asdict(result)},
         )
         return state
+
+    def _build_progress_summary(self, workflow_id: str) -> dict:
+        tests = []
+        if hasattr(self.artifact_store, 'list_by_workflow'):
+            tests = [artifact for artifact in self.artifact_store.list_by_workflow(workflow_id) if hasattr(artifact, 'failed_cases')]
+        if not tests:
+            return {
+                "failures_reduced": 0,
+                "no_new_failures": True,
+                "stable_pass_streak": 0,
+                "stalled": False,
+            }
+        latest = tests[-1]
+        previous = tests[-2] if len(tests) >= 2 else None
+        failures_reduced = int(getattr(latest, "failures_reduced", 0))
+        if previous is not None and failures_reduced == 0:
+            failures_reduced = max(0, int(getattr(previous, "failed_cases", 0)) - int(getattr(latest, "failed_cases", 0)))
+        no_new_failures = not bool(getattr(latest, "regression_detected", False))
+        stable_pass_streak = int(getattr(latest, "stable_pass_streak", 1 if getattr(latest, "passed", False) else 0))
+        stalled = False
+        if len(tests) >= 2:
+            newest = tests[-1]
+            older = tests[-2]
+            if (
+                int(getattr(newest, "failed_cases", 0)) >= int(getattr(older, "failed_cases", 0))
+                and not getattr(newest, "passed", False)
+                and not getattr(older, "passed", False)
+            ):
+                stalled = True
+        return {
+            "failures_reduced": failures_reduced,
+            "no_new_failures": no_new_failures,
+            "stable_pass_streak": stable_pass_streak,
+            "stalled": stalled,
+        }
 
     def run_until_terminal(self, workflow_id: str, max_steps: int = 100) -> WorkflowState:
         for _ in range(max_steps):

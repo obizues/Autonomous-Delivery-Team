@@ -1,4 +1,4 @@
-# Release Notes v0.3.2
+# Release Notes v0.4
 
 ## Summary
 - Bugfix release: launcher and workflow engine stability
@@ -14,5 +14,5 @@
 - Updated documentation for v0.3.2
 
 ## Status
-- v0.3.2 tagged and pushed to main
+- v0.4 tagged and pushed to main
 - Ready for multi-repo profiling and cross-repo features

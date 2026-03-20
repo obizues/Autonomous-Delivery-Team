@@ -1,18 +1,17 @@
+
 from __future__ import annotations
-
-import json
 import os
+import json
 import shutil
-from dataclasses import asdict, is_dataclass
-from datetime import datetime
-from enum import Enum
-from pathlib import Path
 from typing import Any
-
-from ai_software_factory.artifacts.markdown import render_artifact_markdown
-from ai_software_factory.domain.enums import EventType, WorkflowStage, WorkflowStatus
+from dataclasses import asdict, is_dataclass
+from enum import Enum
+from datetime import datetime
+from pathlib import Path
+from ai_software_factory.domain.enums import WorkflowStage, EventType, WorkflowStatus
 from ai_software_factory.domain.models import CodeImplementation, TestResult
-from ai_software_factory.orchestration.runner import build_demo_backlog, create_engine
+from ai_software_factory.artifacts.markdown import render_artifact_markdown
+from ai_software_factory.orchestration.runner import create_engine, build_demo_backlog
 
 
 def _parse_resume_stage(raw_value: str | None) -> WorkflowStage:
@@ -245,21 +244,30 @@ def main() -> None:
         if backlog_item is None:
             backlog_item = build_demo_backlog(selected_seed_repo, repo_url=selected_repo_url)
             backlog_item.title = f"Resumed workflow {resume_workflow_id}"
-        try:
-            state = engine.resume_from_escalation(
-                workflow_id=resume_workflow_id,
-                human_response=human_response,
-                responder=resume_responder,
-                resume_stage=resume_stage,
-                response_template=resume_response_template,
-                resume_max_steps=resume_max_steps,
-            )
-        except KeyError:
-            raise SystemExit(
-                "Resume failed: workflow_id "
-                f"'{resume_workflow_id}' was not found in the configured state store "
-                f"(backend={selected_backend}, sqlite_path={selected_sqlite_path})."
-            )
+        # Pre-resume escalation check
+        escalation_exists = False
+        for artifact in engine.artifact_store.list_by_workflow(resume_workflow_id):
+            if artifact.__class__.__name__ == "EscalationArtifact" and getattr(artifact, "stage", None) == (resume_stage or engine.state_store.load(resume_workflow_id).current_stage):
+                escalation_exists = True
+                break
+        if not escalation_exists:
+            print(f"Cannot resume: Workflow {resume_workflow_id} has no escalation artifact to resolve at stage {(resume_stage or engine.state_store.load(resume_workflow_id).current_stage)}.")
+        else:
+            try:
+                state = engine.resume_from_escalation(
+                    workflow_id=resume_workflow_id,
+                    human_response=human_response,
+                    responder=resume_responder,
+                    resume_stage=resume_stage,
+                    response_template=resume_response_template,
+                    resume_max_steps=resume_max_steps,
+                )
+            except KeyError:
+                raise SystemExit(
+                    "Resume failed: workflow_id "
+                    f"'{resume_workflow_id}' was not found in the configured state store "
+                    f"(backend={selected_backend}, sqlite_path={selected_sqlite_path})."
+                )
     else:
         backlog_item = build_demo_backlog(selected_seed_repo, repo_url=selected_repo_url)
         state = engine.start(backlog_item)

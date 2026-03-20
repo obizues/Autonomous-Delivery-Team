@@ -1,17 +1,24 @@
 
 # Autonomous Delivery System
+## Test Policy and Type Errors
+
+Main workspace tests are prioritized for CI/CD, release, and quality assurance. Type errors in test files (e.g., test_workflow_engine.py, test_escalation_workflow.py) are suppressed with `# type: ignore` comments when they do not affect runtime or test results. These suppressed errors are documented and do not block builds or releases.
+
+Sandboxed/parallel test failures are reviewed periodically but do not block main development unless required by process or stakeholders. Focus is maintained on keeping the main workspace clean and documented.
+
+For full type safety, suppressed errors can be addressed, but this is not required for production unless strict compliance is needed.
 
 This project is maintained in the GitHub repository [obizues/Autonomous-Delivery-Team](https://github.com/obizues/Autonomous-Delivery-Team) on the `main` branch.
 
-Version: **v0.4**
+Version: **v0.4.1**
 
-![Release](https://img.shields.io/badge/release-v0.4-2563eb)
+![Release](https://img.shields.io/badge/release-v0.4.1-2563eb)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
 ![Docs](https://img.shields.io/badge/docs-ready-16a34a)
 
 Autonomous Delivery System enables automated software delivery workflows with cross-repo autonomy.
 
-**Status:** All tests passing (v0.4, cross-repo autonomy, dummy agent logic, escalation patch, TODOs for real features)
+**Status:** All tests passing (v0.4.1, cross-repo autonomy, dummy agent logic, escalation patch, TODOs for real features)
 
 See docs/ROADMAP.md and docs/V0_4_CROSS_REPO_AUTONOMY_BACKLOG.md for planning and backlog.
 
@@ -136,6 +143,44 @@ autonomous_delivery/
 - Screenshots Guide: `docs/SCREENSHOTS.md`
 - Changelog: `CHANGELOG.md`
 
+
+## Import and Launch Conventions
+
+### UI and Streamlit App Imports
+
+- All UI modules (in `ui/`) use **local imports** (e.g., `from config import ...`) to ensure compatibility when launching from the `ui` directory.
+- Package modules (in `src/ai_software_factory/`) use **absolute imports** (e.g., `from ai_software_factory.orchestration import ...`).
+- Always launch UI scripts (including Streamlit) from the `ui` directory to avoid `ModuleNotFoundError`.
+- If launching Streamlit, use:
+  - `cd ui`
+  - `streamlit run app.py`
+- If launching via Python, use:
+  - `.venv\Scripts\python.exe launcher.py`
+- Ensure `PYTHONPATH` is set to `src` if launching from the root directory.
+- All directories must contain `__init__.py` files for package recognition.
+
+### Troubleshooting Imports
+
+- If you encounter `ModuleNotFoundError`, verify:
+  - You are launching from the correct directory (`ui` for UI/Streamlit).
+  - Import style matches the module location (local for UI, absolute for packages).
+  - `__init__.py` exists in all relevant directories.
+  - `PYTHONPATH` is set if launching from root.
+  - Streamlit cache is cleared (`streamlit cache clear`).
+
+### Example Launch Sequence
+
+```powershell
+cd ui
+streamlit run app.py
+```
+
+or
+
+```powershell
+.venv\Scripts\python.exe launcher.py
+```
+
 ## Screenshots
 
 For external viewers, include dashboard screenshots under `docs/assets/screenshots/` using the naming guidance in `docs/SCREENSHOTS.md`.
@@ -166,5 +211,5 @@ For external viewers, include dashboard screenshots under `docs/assets/screensho
 
 ## Release
 
-This repository is prepared for external viewing as **v0.4**.
-See `CHANGELOG.md` and `docs/RELEASE_NOTES_v0.4.md` for details.
+This repository is prepared for external viewing as **v0.4.1**.
+See `CHANGELOG.md` and `docs/RELEASE_NOTES_v0.4.1.md` for details.

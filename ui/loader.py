@@ -11,7 +11,7 @@ from typing import Any
 
 import streamlit as st
 
-from config import ARTIFACT_TYPE_LABELS, DEMO_OUTPUT, STAGE_ORDER
+from config import *
 
 
 @st.cache_data(ttl=5)

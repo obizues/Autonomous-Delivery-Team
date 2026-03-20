@@ -9,7 +9,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
-from config import ARTIFACT_TYPE_LABELS, REVIEW_GATES, STAGE_META, STAGE_ORDER
+from config import *
 from query import (
     artifacts_by_stage,
     first_artifact,

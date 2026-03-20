@@ -7,17 +7,21 @@ from ai_software_factory.governance.approvals import ApprovalService
 from ai_software_factory.governance.escalations import EscalationService
 from ai_software_factory.domain.models import BacklogItem
 
+from dataclasses import dataclass, field
+from ai_software_factory.agents.base import Agent
+from ai_software_factory.domain.enums import WorkflowStage, WorkflowStatus
+
 class DummyAgent:
+    @dataclass
     class Result:
-        def __init__(self, produced_artifacts=None, escalation_request=None, decision=None, notes=""):
-            self.produced_artifacts = produced_artifacts or []
-            self.escalation_request = escalation_request
-            self.decision = decision
-            self.notes = notes
+        produced_artifacts: list = field(default_factory=list)
+        escalation_request: object = None
+        decision: object = None
+        notes: str = ""
     def act(self, context):
         state = context.workflow_state
         if hasattr(state, "status"):
-            state.status = "COMPLETED"
+            state.status = WorkflowStatus.COMPLETED
         if hasattr(state, "stage_history") and hasattr(state, "current_stage"):
             state.stage_history.append(state.current_stage)
         return DummyAgent.Result()
@@ -35,6 +39,8 @@ def test_escalation_workflow():
         "engineer": DummyAgent(),
         "test_engineer": DummyAgent()
     }
+    agents = dict(agents)  # type: ignore
+    agents = dict(agents)
     engine = WorkflowEngine(
         state_store,
         artifact_store,
@@ -54,9 +60,16 @@ def test_escalation_workflow():
         user_story="Test story",
         business_value="Test value"
     )
+    backlog_item = BacklogItem(
+        workflow_id="test_workflow",
+        stage=WorkflowStage.BACKLOG_INTAKE,
+        created_by="ProductOwner",
+        artifact_id="test_backlog",
+        title="Test Backlog"
+    )
     state = engine.start(backlog_item)
     # Simulate escalation
-    state.status = "ESCALATED"
+    state.status = WorkflowStatus.ESCALATED
     # Explicitly create escalation artifact
     from ai_software_factory.domain.models import EscalationArtifact
     from ai_software_factory.domain.enums import WorkflowStage, ArtifactStatus

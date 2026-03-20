@@ -31,15 +31,7 @@ from analytics import (
     planner_insights_by_revision,
     quality_trends_by_revision,
 )
-from config import (
-    ARTIFACT_TYPE_LABELS,
-    DEMO_OUTPUT,
-    EVENT_ICONS,
-    REVIEW_GATES,
-    STAGE_META,
-    STAGE_ORDER,
-    TOKENS,
-)
+from config import *
 from loader import load_artifacts, load_events, load_readme, load_snapshots
 from query import (
     artifacts_by_stage,

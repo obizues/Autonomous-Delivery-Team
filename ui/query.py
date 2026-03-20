@@ -8,7 +8,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
-from config import ARTIFACT_TYPE_LABELS, STAGE_META, STAGE_ORDER
+from config import *
 
 
 # ── Formatting ────────────────────────────────────────────────────────────────

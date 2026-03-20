@@ -1,4 +1,3 @@
-from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timezone
 
@@ -31,7 +30,9 @@ class WorkflowEngine:
         escalation_service: EscalationService,
         max_revisions: int = 3,
         policy_manager=None,
-        repo_paths: list[str] = None,
+        repo_paths: list[str] = [],
+        multi_repo_coordinator=None,
+        repo_ingestion_service=None,
     ) -> None:
         self.state_store = state_store
         self.artifact_store = artifact_store
@@ -43,19 +44,113 @@ class WorkflowEngine:
         from ai_software_factory.governance.policy import PolicyManager
         self.policy_manager = policy_manager or PolicyManager()
         self.repo_paths = repo_paths or []
+        from ai_software_factory.orchestration.multi_repo import MultiRepoCoordinator
+        self.multi_repo_coordinator = multi_repo_coordinator or MultiRepoCoordinator()
+        from ai_software_factory.orchestration.repo_ingestion import RepoIngestionService
+        self.repo_ingestion_service = repo_ingestion_service or RepoIngestionService()
+
+    def link_and_validate_cross_repo_artifacts(self, workflow_id: str) -> None:
+        """Automate linking and validation of artifacts across repo boundaries."""
+        state = self.state_store.load(workflow_id)
+        profiles = self.repo_ingestion_service.link_capability_reports()
+        linked_artifacts = set()
+        for profile in profiles:
+            for artifact_id in profile.get("linked_artifacts", []):
+                linked_artifacts.add(artifact_id)
+        # Validate that each artifact is linked to at least one repo profile
+        validation_results = {}
+        for artifact_id in state.artifact_ids:
+            validation_results[artifact_id] = artifact_id in linked_artifacts
+        # Optionally emit validation event
+        self.event_bus.emit(
+            workflow_id=workflow_id,
+            event_type="CROSS_REPO_ARTIFACT_VALIDATED",
+            stage=state.current_stage,
+            payload={"validation_results": validation_results},
+        )
+
+    def coordinate_cross_repo_artifacts(self, workflow_id: str) -> None:
+        """Coordinate delivery and artifact flow across repository boundaries."""
+        state = self.state_store.load(workflow_id)
+        profiles = self.repo_ingestion_service.link_capability_reports()
+        for artifact_id in state.artifact_ids:
+            artifact = self.artifact_store.load(artifact_id)
+            # Find repo profile(s) matching artifact type or capability
+            for profile in profiles:
+                if artifact.__class__.__name__ in profile.get("artifact_types", []):
+                    # Link artifact to repo profile for orchestration
+                    if "linked_artifacts" not in profile:
+                        profile["linked_artifacts"] = []
+                    profile["linked_artifacts"].append(artifact_id)
+        # Optionally emit orchestration event
+        self.event_bus.emit(
+            workflow_id=workflow_id,
+            event_type="CROSS_REPO_ARTIFACT_COORDINATED",
+            stage=state.current_stage,
+            payload={"profiles": profiles, "artifact_ids": state.artifact_ids},
+        )
+
+class WorkflowEngine:
+    def __init__(
+        self,
+        state_store: StateStore,
+        artifact_store: ArtifactStore,
+        event_bus: EventBus,
+        agents: dict[str, Agent],
+        approval_service: ApprovalService,
+        escalation_service: EscalationService,
+        max_revisions: int = 3,
+        policy_manager=None,
+        repo_paths: list[str] = [],
+        multi_repo_coordinator=None,
+        repo_ingestion_service=None,
+    ) -> None:
+        self.state_store = state_store
+        self.artifact_store = artifact_store
+        self.event_bus = event_bus
+        self.agents = agents
+        self.approval_service = approval_service
+        self.escalation_service = escalation_service
+        self.max_revisions = max_revisions
+        from ai_software_factory.governance.policy import PolicyManager
+        self.policy_manager = policy_manager or PolicyManager()
+        self.repo_paths = repo_paths or []
+        from ai_software_factory.orchestration.multi_repo import MultiRepoCoordinator
+        self.multi_repo_coordinator = multi_repo_coordinator or MultiRepoCoordinator()
+        from ai_software_factory.orchestration.repo_ingestion import RepoIngestionService
+        self.repo_ingestion_service = repo_ingestion_service or RepoIngestionService()
+
+    def ingest_and_profile_repositories(self, repo_configs):
+        """Ingest and profile repositories, updating orchestration state."""
+        self.repo_ingestion_service.ingest_repositories(repo_configs)
+        profiles = self.repo_ingestion_service.profile_repositories()
+        self.multi_repo_coordinator.repo_profiles = profiles
+        return profiles
+    def select_repo_for_task(self, task_description):
+        # Use agentic repo selection
+        return self.multi_repo_coordinator.select_best_repo(task_description, required_capabilities=[])
 
     def start(self, backlog_item):
         """
         Start a new workflow for the given backlog item and return the initial WorkflowState.
+        Automate backlog intake, prioritization, and assignment.
         """
         from ai_software_factory.workflow.state import WorkflowState
         from ai_software_factory.domain.enums import WorkflowStatus, WorkflowStage
         import uuid
+        # Prioritize backlog item (simple: by business value or criteria count)
+        priority = getattr(backlog_item, "business_value", "")
+        if hasattr(backlog_item, "acceptance_criteria"):
+            priority_score = len(backlog_item.acceptance_criteria)
+        else:
+            priority_score = 1
+        # Assign to agent (simple: product_owner or engineer)
+        assigned_agent = "engineer" if priority_score > 2 else "product_owner"
         workflow_id = str(uuid.uuid4())
         state = WorkflowState(
             backlog_item_id=backlog_item.artifact_id,
             workflow_id=workflow_id,
-            current_stage=WorkflowStage.IMPLEMENTATION,
+            current_stage=WorkflowStage.BACKLOG_INTAKE,
             status=WorkflowStatus.IN_PROGRESS,
             revision=1,
             artifact_ids=[backlog_item.artifact_id],
@@ -66,16 +161,18 @@ class WorkflowEngine:
         self.event_bus.emit(
             workflow_id=workflow_id,
             event_type=EventType.WORKFLOW_STARTED,
-            stage=WorkflowStage.IMPLEMENTATION,
-            payload={"backlog_item_id": backlog_item.artifact_id},
+            stage=WorkflowStage.BACKLOG_INTAKE,
+            payload={"backlog_item_id": backlog_item.artifact_id, "priority": priority, "assigned_agent": assigned_agent},
         )
         self.event_bus.emit(
             workflow_id=workflow_id,
             event_type=EventType.ARTIFACT_CREATED,
-            stage=WorkflowStage.IMPLEMENTATION,
+            stage=WorkflowStage.BACKLOG_INTAKE,
             payload={
                 "artifact_id": backlog_item.artifact_id,
                 "artifact_type": backlog_item.__class__.__name__,
+                "priority": priority,
+                "assigned_agent": assigned_agent,
             },
         )
         return state
@@ -146,31 +243,33 @@ class WorkflowEngine:
         workflow_id: str,
         human_response: str,
         responder: str = "human_operator",
-        resume_stage: WorkflowStage = None,
+        resume_stage: WorkflowStage | None = None,
         response_template: str = "",
         resume_max_steps: int = 120,
     ) -> WorkflowState:
         state = self.state_store.load(workflow_id)
         if state.status != "ESCALATED":
             raise ValueError(f"Workflow {workflow_id} is not escalated.")
-        # Patch: Find escalation artifact
+        # Find escalation artifact for any stage
         escalation = None
         for artifact in self.artifact_store.list_by_workflow(workflow_id):
-            if getattr(artifact, "stage", None) == state.current_stage:
+            if isinstance(artifact, EscalationArtifact) and getattr(artifact, "stage", None) == (resume_stage or state.current_stage):
                 escalation = artifact
                 break
         if escalation is None:
-            raise ValueError(f"Workflow {workflow_id} has no escalation artifact to resolve.")
+            raise ValueError(f"Workflow {workflow_id} has no escalation artifact to resolve at stage {(resume_stage or state.current_stage)}.")
         escalation.human_response = human_response
-        escalation.escalation_status = "RESOLVED"
+        escalation.escalation_status = EscalationStatus.RESOLVED
         escalation.resolved_at = datetime.now(timezone.utc)
         escalation.resolution_summary = f"Human response recorded. Resume from {resume_stage.value if resume_stage else state.current_stage}."
         self.artifact_store.save(escalation)
-        state.status = "IN_PROGRESS"
+        state.status = WorkflowStatus.IN_PROGRESS
+        if resume_stage:
+            state.current_stage = resume_stage
         self.state_store.save(state)
         return state
 
-    def execute_next(self, workflow_id: str) -> WorkflowState:
+    def execute_next(self, workflow_id: str) -> WorkflowState | None:
         state = self.state_store.load(workflow_id)
         if state is None:
             return None
@@ -178,6 +277,48 @@ class WorkflowEngine:
             return state
         stage = state.current_stage
         self.event_bus.emit(workflow_id=state.workflow_id, event_type=EventType.STAGE_STARTED, stage=stage)
+
+        # Handle resume from escalation for any stage
+        if state.status == WorkflowStatus.ESCALATED:
+            # If human intervention artifact exists, resume workflow
+            escalation_artifacts = [a for a in self.artifact_store.list_by_workflow(state.workflow_id) if getattr(a, "stage", None) == state.current_stage and getattr(a, "escalation_status", None) == "RESOLVED"]
+            if escalation_artifacts:
+                state.status = WorkflowStatus.IN_PROGRESS
+                self.state_store.save(state)
+            else:
+                return state
+        if state.status != WorkflowStatus.IN_PROGRESS:
+            return state
+
+        # Policy-driven escalation checks for all stages
+        gate_policy = self.policy_manager.get_gate_policy(str(stage))
+        min_artifacts = gate_policy.get("min_artifacts")
+        if min_artifacts is not None:
+            artifacts = self.artifact_store.list_by_workflow(state.workflow_id)
+            if len(artifacts) < min_artifacts:
+                self._record_escalation(
+                    state=state,
+                    stage=stage,
+                    reason=f"Minimum artifacts ({min_artifacts}) not met for stage {stage}.",
+                    raised_by="policy_manager",
+                    extra_payload={"min_artifacts": min_artifacts, "actual": len(artifacts)}
+                )
+                state.status = WorkflowStatus.ESCALATED
+                self.state_store.save(state)
+                return state
+
+        revision_budget = self.policy_manager.get_revision_budget()
+        if state.revision > revision_budget:
+            self._record_escalation(
+                state=state,
+                stage=stage,
+                reason=f"Revision budget ({revision_budget}) exceeded at stage {stage}.",
+                raised_by="policy_manager",
+                extra_payload={"revision": state.revision, "budget": revision_budget}
+            )
+            state.status = WorkflowStatus.ESCALATED
+            self.state_store.save(state)
+            return state
 
         role = STAGE_TO_ROLE.get(stage)
         if role is None:
@@ -235,6 +376,8 @@ class WorkflowEngine:
                 raised_by=result.escalation_request.raised_by,
             )
             state.status = WorkflowStatus.ESCALATED
+            self.state_store.save(state)
+            return state
 
         if result.decision is not None:
             self.event_bus.emit(
@@ -398,3 +541,4 @@ class WorkflowEngine:
                 return self.state_store.load(workflow_id)
             self.execute_next(workflow_id)
         return self.state_store.load(workflow_id)
+

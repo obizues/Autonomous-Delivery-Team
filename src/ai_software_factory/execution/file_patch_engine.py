@@ -15,6 +15,8 @@ class PatchResult:
     symbols: list[str] = field(default_factory=list)
 
 
+from typing import Optional
+
 class FilePatchEngine:
     @staticmethod
     def _should_validate_python(target: Path) -> bool:

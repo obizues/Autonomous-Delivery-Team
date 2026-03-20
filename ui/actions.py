@@ -6,9 +6,13 @@ from __future__ import annotations
 import os
 import sqlite3
 import subprocess
+import os
+import sqlite3
+import subprocess
 import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from config import *
 from pathlib import Path
-
 from config import BASE_DIR, UI_SQLITE_PATH
 
 

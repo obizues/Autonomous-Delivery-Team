@@ -3,9 +3,9 @@
 
 ## Current Release
 
-- `v0.3.1` (all tests passing, dummy agent logic, escalation patch, TODOs for real features)
-- v0.3.1 tagged and pushed to main.
-- v0.3 planning checklist: `V0_3_AUTONOMY_HARDENING_CHECKLIST.md`
+`v0.3.2` (all tests passing, dummy agent logic, escalation patch, TODOs for real features)
+v0.3.2 tagged and pushed to main.
+v0.3 planning checklist: `V0_3_AUTONOMY_HARDENING_CHECKLIST.md`
 
 ## Next Planned Items
 

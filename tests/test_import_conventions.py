@@ -7,6 +7,9 @@ import sys
 import os
 
 # UI local import test
+import os
+import sys
+
 os.chdir(os.path.dirname(__file__))
 try:
     import config

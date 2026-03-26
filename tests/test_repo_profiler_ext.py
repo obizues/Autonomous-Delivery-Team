@@ -50,10 +50,13 @@ def test_profile_unusual_repo_structure():
         profiler = RepoCapabilityProfiler(repo_path=repo_dir)
         report = profiler.profile()
         assert report["repo_name"] == os.path.basename(repo_dir)
-        assert isinstance(report["languages"], list)
 import os
 import tempfile
 import pytest
+    import os
+    import tempfile
+    import pytest
+        assert isinstance(report["languages"], list)
 from ai_software_factory.artifacts.repo_profiler import RepoCapabilityProfiler
 
 

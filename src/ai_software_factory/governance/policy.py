@@ -2,8 +2,14 @@ import yaml
 from pathlib import Path
 
 class PolicyManager:
-    def __init__(self, policy_path: str = "config/workflow_policy.yaml"):
-        self.policy_path = Path(policy_path)
+    def __init__(self, policy_path: str | None = None):
+        # Always resolve policy path relative to project root
+        if policy_path is None:
+            # Find project root (directory containing this file, up 3 levels)
+            project_root = Path(__file__).resolve().parent.parent.parent.parent
+            self.policy_path = project_root / "config" / "workflow_policy.yaml"
+        else:
+            self.policy_path = Path(policy_path).resolve()
         self.policy = self.load_policy()
 
     def load_policy(self):

@@ -25,18 +25,18 @@ REVIEW_GATES: set[WorkflowStage] = {
     WorkflowStage.PRODUCT_ACCEPTANCE_GATE,
 }
 
-STAGE_TO_ROLE: dict[WorkflowStage, str] = {
-    WorkflowStage.BACKLOG_INTAKE: "product_owner",
-    WorkflowStage.PRODUCT_DEFINITION: "product_owner",
-    WorkflowStage.REQUIREMENTS_ANALYSIS: "business_analyst",
-    WorkflowStage.ARCHITECTURE_DESIGN: "architect",
-    WorkflowStage.IMPLEMENTATION: "engineer",
-    WorkflowStage.PULL_REQUEST_CREATED: "engineer",
-    WorkflowStage.MERGE_CONFLICT_GATE: "engineer",
-    WorkflowStage.ARCHITECTURE_REVIEW_GATE: "architect",
-    WorkflowStage.PEER_CODE_REVIEW_GATE: "engineer",
-    WorkflowStage.TEST_VALIDATION_GATE: "test_engineer",
-    WorkflowStage.PRODUCT_ACCEPTANCE_GATE: "product_owner",
+STAGE_TO_ROLE: dict[WorkflowStage, list[str]] = {
+    WorkflowStage.BACKLOG_INTAKE: ["product_owner"],
+    WorkflowStage.PRODUCT_DEFINITION: ["product_owner", "business_analyst"],
+    WorkflowStage.REQUIREMENTS_ANALYSIS: ["business_analyst", "product_owner"],
+    WorkflowStage.ARCHITECTURE_DESIGN: ["architect", "engineer"],
+    WorkflowStage.IMPLEMENTATION: ["engineer", "test_engineer"],
+    WorkflowStage.PULL_REQUEST_CREATED: ["engineer"],
+    WorkflowStage.MERGE_CONFLICT_GATE: ["engineer", "test_engineer"],
+    WorkflowStage.ARCHITECTURE_REVIEW_GATE: ["architect", "engineer"],
+    WorkflowStage.PEER_CODE_REVIEW_GATE: ["engineer", "test_engineer"],
+    WorkflowStage.TEST_VALIDATION_GATE: ["test_engineer", "engineer"],
+    WorkflowStage.PRODUCT_ACCEPTANCE_GATE: ["product_owner", "business_analyst"],
 }
 
 

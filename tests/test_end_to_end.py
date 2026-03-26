@@ -1,4 +1,7 @@
 import pytest
+import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 from ai_software_factory.workflow.engine import WorkflowEngine
 from ai_software_factory.persistence.state_store import InMemoryStateStore
 from ai_software_factory.persistence.artifact_store import InMemoryArtifactStore
@@ -13,7 +16,9 @@ from dataclasses import dataclass
 from dataclasses import dataclass
 
 # TODO: Implement real agent logic for workflow completion and stage history updates
-class DummyAgent:
+from ai_software_factory.agents.base import Agent
+
+class DummyAgent(Agent):
     @dataclass
     class Result:
         produced_artifacts: list = None

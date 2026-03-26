@@ -10,8 +10,10 @@ import json
 from typing import Any
 
 import streamlit as st
+from autonomous_delivery.ui.services.artifact_drilldown_service import ArtifactDrilldownService
+from autonomous_delivery.ui.services.file_loader_service import get_file_content_at_revision
 
-from actions import (
+from autonomous_delivery.ui.actions import (
     latest_escalation_reason,
     run_escalation_demo_from_dashboard,
     run_resume_from_dashboard,
@@ -20,7 +22,6 @@ from actions import (
 from analytics import (
     artifact_highlights,
     build_graph_nodes,
-    build_stage_timeline,
     detect_revision_cycles,
     engineer_revision_rollup,
     extract_key_decisions,
@@ -31,12 +32,11 @@ from analytics import (
     planner_insights_by_revision,
     quality_trends_by_revision,
 )
-from config import *
+from autonomous_delivery.ui.config import TOKENS, DEMO_OUTPUT, STAGE_ORDER, STAGE_META, ARTIFACT_TYPE_LABELS, REVIEW_GATES, EVENT_ICONS
 from loader import load_artifacts, load_events, load_readme, load_snapshots
 from query import (
     artifacts_by_stage,
     count_decisions,
-    decision_badge,
     detect_active_context,
     effective_workflow_status,
     first_artifact,
@@ -216,68 +216,83 @@ def render_workflow_graph_tab(readme: dict, artifacts: list[dict], events: list[
 
     decision_index: dict[str, int] = {}
 
-    for index, node in enumerate(nodes):
-        stage = node["stage"]
-        revision = node["revision"]
+    # Determine all possible workflow stages
+    from autonomous_delivery.ui.config import STAGE_ORDER
+    reached_stages = {node["stage"] for node in nodes}
+    for stage in STAGE_ORDER:
+        # Find node for this stage (if any)
+        node = next((n for n in nodes if n["stage"] == stage), None)
         icon, _, _ = STAGE_META.get(stage, ("•", stage, ""))
-
-        show_revision = stage_counts.get(stage, 0) > 1 or stage in {
-            "IMPLEMENTATION",
-            "PULL_REQUEST_CREATED",
-            "MERGE_CONFLICT_GATE",
-            "ARCHITECTURE_REVIEW_GATE",
-            "PEER_CODE_REVIEW_GATE",
-            "TEST_VALIDATION_GATE",
-            "PRODUCT_ACCEPTANCE_GATE",
-        }
-        title = f"{stage} (Rev {revision})" if show_revision else stage
-
-        decision = ""
-        if stage in REVIEW_GATES:
-            decision_list = decision_map.get(stage, [])
-            dec_idx = decision_index.get(stage, 0)
-            if dec_idx < len(decision_list):
-                decision = decision_list[dec_idx]
-            decision_index[stage] = dec_idx + 1
-
-        is_last = index == len(nodes) - 1
-        if is_last and stage == current_stage and stage != "DONE":
-            node_status_class = "current"
-            status_label = "CURRENT_STAGE"
-        else:
-            node_status_class = "completed"
-            status_label = "COMPLETED_STAGE"
-
-        if node.get("loop_entry"):
-            node_status_class = f"{node_status_class} loop"
-
-        decision_badge_html = ""
-        if decision == "APPROVED":
-            decision_badge_html = '<span class="wf-chip approved">APPROVED</span>'
-        elif decision == "REQUEST_CHANGES":
-            decision_badge_html = '<span class="wf-chip changes">REQUEST_CHANGES</span>'
-
-        status_badge_html = (
-            '<span class="wf-chip current">CURRENT_STAGE</span>'
-            if status_label == "CURRENT_STAGE"
-            else '<span class="wf-chip completed">COMPLETED_STAGE</span>'
-        )
-
-        st.markdown(
-            f"""
-            <div class="wf-node {node_status_class}">
-                <div class="wf-node-top">
-                    <div class="wf-stage">{icon} {title}</div>
-                    <div>{decision_badge_html} {status_badge_html}</div>
+        if node:
+            revision = node["revision"]
+            show_revision = stage_counts.get(stage, 0) > 1 or stage in {
+                "IMPLEMENTATION",
+                "PULL_REQUEST_CREATED",
+                "MERGE_CONFLICT_GATE",
+                "ARCHITECTURE_REVIEW_GATE",
+                "PEER_CODE_REVIEW_GATE",
+                "TEST_VALIDATION_GATE",
+                "PRODUCT_ACCEPTANCE_GATE",
+            }
+            title = f"{stage} (Rev {revision})" if show_revision else stage
+            decision = ""
+            if stage in REVIEW_GATES:
+                decision_list = decision_map.get(stage, [])
+                dec_idx = decision_index.get(stage, 0)
+                if dec_idx < len(decision_list):
+                    decision = decision_list[dec_idx]
+                decision_index[stage] = dec_idx + 1
+            is_last = nodes.index(node) == len(nodes) - 1
+            if is_last and stage == current_stage and stage != "DONE":
+                node_status_class = "current"
+                status_label = "CURRENT_STAGE"
+            else:
+                node_status_class = "completed"
+                status_label = "COMPLETED_STAGE"
+            if node.get("loop_entry"):
+                node_status_class = f"{node_status_class} loop"
+            decision_badge_html = ""
+            if decision == "APPROVED":
+                decision_badge_html = '<span class="wf-chip approved">APPROVED</span>'
+            elif decision == "REQUEST_CHANGES":
+                decision_badge_html = '<span class="wf-chip changes">REQUEST_CHANGES</span>'
+            status_badge_html = (
+                '<span class="wf-chip current">CURRENT_STAGE</span>'
+                if status_label == "CURRENT_STAGE"
+                else '<span class="wf-chip completed">COMPLETED_STAGE</span>'
+            )
+            st.markdown(
+                f"""
+                <div class="wf-node {node_status_class}">
+                    <div class="wf-node-top">
+                        <div class="wf-stage">{icon} {title}</div>
+                        <div>{decision_badge_html} {status_badge_html}</div>
+                    </div>
+                    <div class="wf-meta">Revision {revision}</div>
                 </div>
-                <div class="wf-meta">Revision {revision}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            # Not reached: show faded node with badge
+            st.markdown(
+                f"""
+                <div class="wf-node not-reached" style="opacity:0.5;filter:grayscale(0.7);border-left:4px solid #d1d5db;">
+                    <div class="wf-node-top">
+                        <div class="wf-stage">{icon} {stage}</div>
+                        <div><span class='wf-chip' style='background:#eee;color:#888;border:1px solid #d1d5db' title='This step was not reached in this run.'>NOT REACHED</span></div>
+                    </div>
+                    <div class="wf-meta">—</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-        if index < len(nodes) - 1:
-            next_node = nodes[index + 1]
+    # Draw arrows between reached nodes only
+    reached_nodes = [n for n in nodes]
+    for index, node in enumerate(reached_nodes):
+        if index < len(reached_nodes) - 1:
+            next_node = reached_nodes[index + 1]
             if next_node.get("loop_entry"):
                 loop_target = str(next_node.get("stage", "IMPLEMENTATION"))
                 if loop_target == "IMPLEMENTATION":
@@ -633,11 +648,18 @@ def render_revision_insights_tab(readme: dict, artifacts: list[dict], events: li
                 st.markdown("- No patch events found for this revision.")
             else:
                 for patch in rev_patches:
-                    symbols = ", ".join(patch["symbols"]) if patch["symbols"] else "(none)"
-                    status = "APPLIED" if patch["event_type"] == "PATCH_APPLIED" else "ROLLED_BACK"
-                    st.markdown(
-                        f"- {status}: {patch['file_path']} via {patch['operation']} · symbols: {symbols}"
+                    summary = ArtifactDrilldownService.summarize_patch(patch)
+                    st.markdown(summary)
+                    # Show code diff for this patch
+                    old_content, new_content = ArtifactDrilldownService.get_patch_file_contents(
+                        patch, get_file_content_at_revision
                     )
+                    if old_content or new_content:
+                        diff = ArtifactDrilldownService.get_patch_diff(
+                            old_content, new_content, patch["file_path"]
+                        )
+                        with st.expander(f"View code diff for {patch['file_path']}", expanded=False):
+                            st.code(diff, language="diff")
 
             if tests_prev and tests_next:
                 prev_failing = tests_prev.get("meta", {}).get("failing_tests", [])
@@ -657,6 +679,51 @@ def render_summary_tab(
     events: list[dict],
     snapshots: dict,
 ) -> None:
+    import streamlit as st
+    # ── Live Event Feed with Plain-Language Explanations ──
+    st.markdown("### 📰 Live Event Feed (Automation Steps)")
+    def explain_event(evt):
+        etype = evt.get("event_type", "")
+        payload = evt.get("payload", {})
+        who = payload.get("actor") or evt.get("created_by") or "Agent"
+        stage = evt.get("stage", "")
+        ts = evt.get("timestamp", "")
+        ts_short = ts[:19].replace("T", " ") if ts else ""
+        # Simple explanations for key event types
+        if etype == "WORKFLOW_STARTED":
+            return f"<b>Workflow started</b> by <b>{who}</b> at <span style='color:#888'>{ts_short}</span>."
+        if etype == "ARTIFACT_CREATED":
+            art_type = payload.get("artifact_type", "artifact")
+            return f"<b>{who}</b> created <b>{art_type}</b> in <b>{stage}</b> at <span style='color:#888'>{ts_short}</span>."
+        if etype == "DECISION_MADE":
+            decision = payload.get("decision", "—")
+            return f"<b>{who}</b> made decision <b>{decision}</b> at <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
+        if etype == "FILES_MODIFIED":
+            files = payload.get("files") or payload.get("engineer_lanes") or "files"
+            return f"<b>{who}</b> modified files in <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
+        if etype == "PATCH_APPLIED":
+            file_path = payload.get("file_path", "file")
+            return f"Patch applied to <b>{file_path}</b> by <b>{who}</b> <span style='color:#888'>{ts_short}</span>."
+        if etype == "PATCH_ROLLED_BACK":
+            file_path = payload.get("file_path", "file")
+            return f"Patch rolled back on <b>{file_path}</b> by <b>{who}</b> <span style='color:#888'>{ts_short}</span>."
+        if etype == "TEST_EXECUTION_STARTED":
+            return f"Test execution started in <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
+        if etype == "TEST_EXECUTION_COMPLETED":
+            return f"Test execution completed in <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
+        if etype == "WORKFLOW_COMPLETED":
+            return f"<b>Workflow completed</b> <span style='color:#888'>{ts_short}</span>."
+        if etype == "REVISION_STARTED":
+            rev = payload.get("new_revision", "?")
+            return f"Revision <b>{rev}</b> started at <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
+        # Fallback
+        return f"<b>{etype}</b> in <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
+
+    # Show most recent 20 events, newest first
+    for evt in reversed(events[-20:] if len(events) > 20 else events):
+        st.markdown(f"<div style='margin-bottom:6px;padding:7px 10px 7px 12px;border-left:4px solid #2563eb;background:#f8fafc;border-radius:6px'>{explain_event(evt)}</div>", unsafe_allow_html=True)
+    st.divider()
+    import streamlit as st
     active_context = detect_active_context(artifacts, events)
     # Single authoritative rollup — reused throughout this function
     lane_insights, cross_reviews, merge_gate, latest_engineer_revision = engineer_revision_rollup(artifacts, events)
@@ -679,22 +746,100 @@ def render_summary_tab(
         if latest_revision is not None and int(a.get("version", 1)) == latest_revision
     ]
 
-    # ── Feature card ──────────────────────────────────────────────────────
+    # ── Feature card with PR status ──
     status_badge = (
         '<span class="badge badge-approved">COMPLETED</span>' if status == "COMPLETED"
         else f'<span class="badge badge-changes">{status}</span>'
     )
+
+    # ── Step-by-step visual playback (Replay/Demo mode) ──
+    st.markdown("### ▶️ Step-by-Step Workflow Replay")
+    from analytics import build_stage_timeline
+    timeline = build_stage_timeline(artifacts, events, snapshots)
+    if 'replay_step' not in st.session_state:
+        st.session_state['replay_step'] = 0
+    max_step = len(timeline) - 1
+    col1, col2, col3 = st.columns([1,2,1])
+    with col1:
+        if st.button('⏮️', key='replay_first'):
+            st.session_state['replay_step'] = 0
+        if st.button('◀️', key='replay_prev'):
+            st.session_state['replay_step'] = max(0, st.session_state['replay_step'] - 1)
+    with col3:
+        if st.button('▶️', key='replay_next'):
+            st.session_state['replay_step'] = min(max_step, st.session_state['replay_step'] + 1)
+        if st.button('⏭️', key='replay_last'):
+            st.session_state['replay_step'] = max_step
+    with col2:
+        st.markdown(f"<div style='text-align:center;font-size:1.1rem'>Step <b>{st.session_state['replay_step']+1}</b> of <b>{max_step+1}</b></div>", unsafe_allow_html=True)
+    if timeline:
+        step = timeline[st.session_state['replay_step']]
+        st.markdown(f"<div style='background:#f0f9ff;border-left:4px solid #2563eb;padding:12px 18px;border-radius:8px;margin-bottom:10px'>"
+                    f"<b>{step['icon']} {step['label']}</b> <span style='color:#888;font-size:0.95em'>({step['role']})</span><br>"
+                    f"<span style='color:#666;font-size:0.95em'>Artifacts: {', '.join(step['artifact_types']) if step['artifact_types'] else '—'}" 
+                    f" | Decision: <b>{step['decision'] or '—'}</b></span>"
+                    f"</div>", unsafe_allow_html=True)
+        # Show event log for this step
+        stage_events = [e for e in events if e.get('stage') == step['stage'] and (not step['revision'] or e.get('payload', {}).get('revision') == step['revision'])]
+        if stage_events:
+            with st.expander("Show events for this step", expanded=False):
+                for evt in stage_events:
+                    etype = evt.get("event_type", "")
+                    ts = evt.get("timestamp", "")
+                    ts_short = ts[:19].replace("T", " ") if ts else ""
+                    payload = evt.get("payload", {})
+                    summary = ', '.join(f"{k}: {v}" for k, v in payload.items() if k not in ("artifacts", "events"))
+                    st.markdown(f"- <b>{etype}</b> <span style='color:#888'>{ts_short}</span> <span style='color:#666'>{summary}</span>", unsafe_allow_html=True)
+        else:
+            st.caption("No events for this step.")
+    st.divider()
+    not_reached_badge = ""
+    if status not in ("COMPLETED", "ESCALATED"):
+        not_reached_badge = "<span class='badge' style='background:#eee;color:#888;border:1px solid #d1d5db;margin-left:10px' title='Workflow did not reach all stages in this run.'>NOT REACHED</span>"
+
+    # Real-time PR status indicator and delivery highlight
+    pr_status_html = ""
+    delivery_success = False
+    if latest_revision_prs:
+        merged_prs = [pr for pr in latest_revision_prs if pr.get('status', '').upper() == 'MERGED']
+        if merged_prs:
+            delivery_success = True
+            pr_status_html = "<span style='margin-left:10px'><span class='badge' style='background:#bbf7d0;color:#166534;border:1px solid #22c55e'>✅ DELIVERED TO UI REPO</span> "
+        else:
+            pr_status_html = "<span style='margin-left:10px'><span class='badge' style='background:#e0f2fe;color:#0369a1;border:1px solid #38bdf8'>PR CREATED</span> "
+        for pr in latest_revision_prs:
+            pr_title = pr.get('title', 'PR')
+            pr_status = pr.get('status', 'OPEN')
+            pr_status_color = '#22c55e' if pr_status == 'MERGED' else ('#f59e42' if pr_status == 'OPEN' else '#f87171')
+            pr_status_html += f"<span style='margin-left:6px;padding:2px 8px;border-radius:8px;background:{pr_status_color};color:#fff;font-size:0.8rem'>{pr_status}</span>"
+        pr_status_html += "</span>"
+    else:
+        # If a code push is in progress or just completed but no PR yet, show indicator
+        if any(a for a in artifacts if a["type"] == "CodeImplementation" and int(a.get("version", 0) or 0) == latest_revision):
+            pr_status_html = "<span style='margin-left:10px'><span class='badge' style='background:#fef9c3;color:#b45309;border:1px solid #fde68a'>PUSHED (no PR yet)</span></span>"
+
+    import streamlit as st
+    info_modal = st.session_state.get('show_info_modal', False)
+    info_button_col, _ = st.columns([1, 8])
+    if info_button_col.button('ℹ️', help='About new automation features', key='info_modal_btn'):
+        st.session_state['show_info_modal'] = True
+        info_modal = True
+    # Add green highlight to summary card if delivered
+    delivery_style = "box-shadow:0 0 0 3px #bbf7d0;" if delivery_success else ""
     st.markdown(
         f"""
-        <div style="background:{_tokens['surface']};border:1px solid {_tokens['border']};border-radius:10px;padding:20px 24px;margin-bottom:18px">
-            <div style="font-size:1.45rem;font-weight:700;color:{_tokens['text_primary']};margin-bottom:6px">{title}</div>
+        <div style="background:{_tokens['surface']};border:1px solid {_tokens['border']};border-radius:10px;padding:20px 24px;margin-bottom:18px;{delivery_style}">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="font-size:1.45rem;font-weight:700;color:{_tokens['text_primary']};margin-bottom:6px">{title} {not_reached_badge} {pr_status_html}</div>
+                <div style="margin-bottom:6px;"> <span style='cursor:pointer;' title='About new automation features'>ℹ️</span></div>
+            </div>
             <div style="color:{_tokens['text_muted']};font-size:0.9rem;margin-bottom:14px">{problem or 'No problem statement recorded.'}</div>
             <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;color:{_tokens['text_secondary']};font-size:0.86rem">
                 <span>🧪 Repo source: <strong>{active_context['seed_repo_name']}</strong></span>
                 <span>🧭 Repo profile: <strong>{active_context['repo_profile']}</strong></span>
                 <span>📦 Sandbox: <strong>{active_context['sandbox_path']}</strong></span>
             </div>
-            <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
+            <div style="display:flex;gap:24px;flex-wrap;align-items:center">
                 <span style="color:{_tokens['text_muted']};font-size:0.82rem">Workflow&nbsp;<code style="color:{_tokens['code_fg']}">{wf_id[:8]}…</code></span>
                 <span>{status_badge}</span>
                 <span style="color:{_tokens['text_secondary']};font-size:0.85rem">🔄&nbsp;Revisions: <strong>{revision_count}</strong></span>
@@ -709,6 +854,21 @@ def render_summary_tab(
         """,
         unsafe_allow_html=True,
     )
+    if info_modal:
+        st.markdown("""
+            <div style='position:fixed;top:20%;left:50%;transform:translate(-50%,0);background:#fff;border:2px solid #2563eb;border-radius:12px;z-index:1000;padding:32px 36px;box-shadow:0 8px 32px #0002;min-width:340px;max-width:90vw;'>
+                <h3>About Autonomous Delivery Automation</h3>
+                <ul style='font-size:1.05rem;'>
+                    <li>Multi-agent collaboration for each workflow stage</li>
+                    <li>Automated code generation, testing, and code push to UI repo</li>
+                    <li>Real-time PR status and code delivery indicators</li>
+                    <li>Step-by-step workflow visualization and event log</li>
+                    <li>Replay and drilldown features for demo and review</li>
+                </ul>
+                <button onclick="window.location.reload()" style='margin-top:18px;padding:8px 18px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:1rem;cursor:pointer;'>Close</button>
+            </div>
+            <div style='position:fixed;top:0;left:0;width:100vw;height:100vh;background:#0005;z-index:999;' onclick='window.location.reload()'></div>
+        """, unsafe_allow_html=True)
 
     # ── Capability Report Card ─────────────────────────────────────────────
     import os
@@ -861,69 +1021,15 @@ def render_summary_tab(
                         st.markdown(f"- {issue}")
                 if suggestions:
                     st.markdown("**Recommended fixes**")
-                    for suggestion in suggestions:
-                        st.markdown(f"- {suggestion}")
-
-    with st.expander("🧭 Show Detailed Stage Timeline", expanded=False):
-        timeline = build_stage_timeline(artifacts, events, snapshots)
-        for row in timeline:
-            if row.get("stage") == "DONE":
-                row["decision"] = status
-
-        # Extract lanes from events for visualization
-        lanes_by_revision: dict[int, list[str]] = {}
-        for event in reversed(events):
-            if event.get("event_type") != "FILES_MODIFIED":
-                continue
-            payload = event.get("payload", {})
-            lane_values = payload.get("engineer_lanes", [])
-            revision = payload.get("revision")
-            if isinstance(lane_values, list) and lane_values and isinstance(revision, int):
-                if revision not in lanes_by_revision:
-                    lanes_by_revision[revision] = lane_values
-
-        header_cols = st.columns([3, 2, 4, 2])
-        for col, hdr in zip(header_cols, ["Stage", "Agent", "Artifacts Produced", "Decision"]):
-            col.markdown(
-                f"<small style='color:#8b949e;font-weight:700;text-transform:uppercase;"
-                f"letter-spacing:.5px'>{hdr}</small>",
-                unsafe_allow_html=True,
-            )
-        st.markdown("<hr style='margin:4px 0 8px;border-color:#30363d'>", unsafe_allow_html=True)
-
-        for row in timeline:
-            c1, c2, c3, c4 = st.columns([3, 2, 4, 2])
-            c1.markdown(f"{row['icon']} **{row['label']}**")
-            role_label = str(row["role"])
-            if (
-                row.get("stage") in {"IMPLEMENTATION", "PULL_REQUEST_CREATED", "MERGE_CONFLICT_GATE", "PEER_CODE_REVIEW_GATE"}
-                and row.get("revision") in lanes_by_revision
-            ):
-                role_label = f"Engineer Team ({len(lanes_by_revision[row['revision']])} parallel lanes)"
-            c2.markdown(
-                f"<span style='color:#8b949e'>{role_label}</span>",
-                unsafe_allow_html=True,
-            )
-            art_str = ", ".join(row["artifact_types"]) if row["artifact_types"] else "—"
-            c3.markdown(
-                f"<span style='font-size:0.88rem;color:#c9d1d9'>{art_str}</span>",
-                unsafe_allow_html=True,
-            )
-            if row["decision"]:
-                badge = (
-                    decision_badge(row["decision"])
-                    if row["decision"] != "COMPLETED"
-                    else '<span class="badge badge-completed">COMPLETED</span>'
-                )
-                c4.markdown(badge, unsafe_allow_html=True)
-
-            # Show parallel engineer lanes as sub-rows under IMPLEMENTATION
-            if row.get("stage") == "IMPLEMENTATION" and row.get("revision") in lanes_by_revision:
-                lanes = lanes_by_revision[row["revision"]]
+                    # Check if PR was merged for delivery highlight
+                    pull_requests = [a for a in artifacts if a["type"] == "PullRequest"]
+                    latest_revision = latest_observed_revision(artifacts, events, snapshots, readme)
+                    latest_revision_prs = [
+                        a for a in pull_requests
+                        if latest_revision is not None and int(a.get("version", 1)) == latest_revision
+                    ]
                 st.markdown("<div style='margin-left:20px;margin-top:4px;margin-bottom:8px;padding-left:12px;border-left:3px solid #60a5fa'>", unsafe_allow_html=True)
                 st.markdown("<small style='color:#7c3aed;font-weight:700'>🔀 Parallel lanes executing in parallel:</small>", unsafe_allow_html=True)
-                for lane_summary in lanes:
-                    st.markdown(f"<small style='color:#8b949e;font-family:monospace'>{lane_summary}</small>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Key Decisions ───────────────────────────────────────────────────────
@@ -1363,9 +1469,10 @@ def render_main(
                     for art in stage_arts:
                         _render_artifact_entry(art)
 
+
         with evidence_events:
             st.markdown("### Event Stream")
-            st.caption("Raw chronological events with payload details used for debugging and audit (more granular than summaries in other tabs).")
+            st.caption("Chronological log of all agent actions and workflow automation steps. Filter and search to explore the automation process.")
             if not events:
                 st.info("No events recorded.")
                 return
@@ -1388,6 +1495,11 @@ def render_main(
             st.markdown(f"<small style='color:#8b949e'>{len(filtered)} events shown</small>", unsafe_allow_html=True)
             st.divider()
 
+            # Highlight agent actions and automation
+            agent_event_types = {"ARTIFACT_CREATED", "DECISION_MADE", "FILES_MODIFIED", "PATCH_APPLIED", "PATCH_ROLLED_BACK", "TEST_EXECUTION_STARTED", "TEST_EXECUTION_COMPLETED", "WORKFLOW_STARTED", "WORKFLOW_COMPLETED"}
+            automation_highlight = "background:#e0f2fe;border-left:4px solid #2563eb;"  # blue highlight
+            agent_highlight = "background:#fef9c3;border-left:4px solid #f59e42;"      # yellow highlight
+
             for evt in filtered:
                 etype = evt.get("event_type", "")
                 icon = EVENT_ICONS.get(etype, "•")
@@ -1398,15 +1510,20 @@ def render_main(
                 summary_parts = []
                 for key in ("stage", "from_stage", "to_stage", "artifact_type", "decision", "reason"):
                     if key in payload:
-                        summary_parts.append(f"{key}: **{payload[key]}**")
+                        summary_parts.append(f"{key}: <b>{payload[key]}</b>")
 
                 summary = "  ·  ".join(summary_parts) if summary_parts else json.dumps(payload)[:80]
 
+                # Highlight agent/automation events
+                if etype in agent_event_types:
+                    style = automation_highlight if etype in {"WORKFLOW_STARTED", "WORKFLOW_COMPLETED"} else agent_highlight
+                else:
+                    style = ""
+
                 st.markdown(
-                    f'<div class="evt">'
-                    f'{icon} <strong>{etype}</strong>&nbsp;&nbsp;'
-                    f'{summary}'
-                    f'<br><span class="evt-time">{ts_short}</span>'
+                    f'<div class="evt" style="{style}">'\
+                    f'{icon} <strong>{etype}</strong>&nbsp;&nbsp;{summary}'\
+                    f'<br><span class="evt-time">{ts_short}</span>'\
                     f'</div>',
                     unsafe_allow_html=True,
                 )

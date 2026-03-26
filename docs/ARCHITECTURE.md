@@ -4,7 +4,7 @@ The Autonomous Delivery System is developed in the repository [obizues/Autonomou
 
 ## System Overview
 
-Autonomous Delivery System is a role-based workflow engine with observable execution artifacts and a Streamlit UI.
+Autonomous Delivery System is a multi-agent, demo-ready, role-based workflow engine with observable execution artifacts, robust test isolation, and a Streamlit UI supporting step-by-step visual playback, live event feed, and artifact/PR drilldown.
 
 ```text
 UI (Streamlit)
@@ -105,7 +105,16 @@ Persistence backends:
 
 ## UI Architecture
 
-The UI was split into focused modules:
+The UI is modular and demo-ready, featuring:
+- Step-by-step visual playback (Replay/Demo mode) of the full workflow
+- Live event feed with plain-language explanations of each automation step
+- Artifact/PR drilldown with agent attribution and code diffs
+- 'How it Works' overlay and guided walkthrough for demoing automation
+- Visual cause/effect links for automation triggers and results
+- Demo scenario selector for end-to-end delivery examples
+- Robust test isolation and error prevention
+
+UI modules:
 - `ui/app.py`: rendering and top-level flow
 - `ui/config.py`: constants and labels
 - `ui/loader.py`: cached data loaders
@@ -118,4 +127,5 @@ The UI was split into focused modules:
 - Add/modify stages: `domain/enums.py` + `workflow/transitions.py` + relevant role handler.
 - Add new escalation policies: `workflow/engine.py`.
 - Add new dashboard insights: `ui/analytics.py` + `ui/app.py`.
+- Extend UI with new demo/visualization features as needed.
 - Add additional seed scenarios: `seed_repos/` + runner/backlog mapping.

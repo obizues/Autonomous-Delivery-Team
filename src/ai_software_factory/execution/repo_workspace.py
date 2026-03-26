@@ -7,6 +7,48 @@ from urllib.parse import urlparse
 
 
 class RepoWorkspaceManager:
+    def push_to_remote(self, workflow_id: str, commit_message: str = None, branch: str = None) -> None:
+        """
+        Commit and push changes from the sandbox to the remote repository.
+        Args:
+            workflow_id: The workflow run identifier (sandbox folder).
+            commit_message: Commit message to use. If None, a default is generated.
+            branch: Branch to push to. If None, uses current branch.
+        Raises:
+            RuntimeError if git commands fail.
+        """
+        if not self.repo_url:
+            raise RuntimeError("No remote repository URL configured for push.")
+        sandbox = self.sandbox_root / f"run_{workflow_id}"
+        if not sandbox.exists():
+            raise FileNotFoundError(f"Sandbox not found: {sandbox}")
+
+        # Stage all changes
+        result = subprocess.run(["git", "add", "-A"], cwd=sandbox, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Git add failed: {result.stderr or result.stdout}")
+
+        # Commit
+        if not commit_message:
+            commit_message = f"Autonomous delivery commit for workflow {workflow_id}"
+        result = subprocess.run(["git", "commit", "-m", commit_message], cwd=sandbox, capture_output=True, text=True)
+        # Allow empty commit (no changes)
+        if result.returncode not in (0, 1):
+            raise RuntimeError(f"Git commit failed: {result.stderr or result.stdout}")
+
+        # Optionally checkout branch
+        if branch:
+            result = subprocess.run(["git", "checkout", "-B", branch], cwd=sandbox, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(f"Git checkout failed: {result.stderr or result.stdout}")
+
+        # Push
+        push_args = ["git", "push"]
+        if branch:
+            push_args += ["origin", branch]
+        result = subprocess.run(push_args, cwd=sandbox, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Git push failed: {result.stderr or result.stdout}")
     def __init__(
         self,
         seed_repo_root: Path | None = None,
@@ -73,6 +115,13 @@ class RepoWorkspaceManager:
         else:
             shutil.copytree(self.seed_repo_root, target)
         (target / "run_logs").mkdir(exist_ok=True)
+
+        # Always copy the latest models.py from the seed repo to the sandbox src directory
+        src_seed_models = self.seed_repo_root / "src" / "models.py"
+        dst_sandbox_models = target / "src" / "models.py"
+        if src_seed_models.exists():
+            shutil.copy2(src_seed_models, dst_sandbox_models)
+
         return target
 
     def ensure_sandbox(self, workflow_id: str) -> Path:

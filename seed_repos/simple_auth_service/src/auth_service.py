@@ -1,4 +1,4 @@
-from models import AuthResult
+from auth_models import AuthResult
 from token_store import create_token
 
 

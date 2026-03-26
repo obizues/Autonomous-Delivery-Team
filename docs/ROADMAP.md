@@ -3,8 +3,8 @@
 
 ## Current Release
 
-`v0.4.1` (all tests passing, cross-repo autonomy, dummy agent logic, escalation patch, TODOs for real features)
-v0.4.1 tagged and pushed to main.
+`v0.5.0` (multi-agent workflow, step-by-step replay, live event feed, artifact drilldown, robust test isolation, demo-ready UI)
+v0.5.0 tagged and pushed to main.
 v0.3 planning checklist: `V0_3_AUTONOMY_HARDENING_CHECKLIST.md`
 
 ## Next Planned Items

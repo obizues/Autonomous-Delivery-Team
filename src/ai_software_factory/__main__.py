@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 import os
+import sys
 import json
 import shutil
 from typing import Any
@@ -8,6 +9,15 @@ from dataclasses import asdict, is_dataclass
 from enum import Enum
 from datetime import datetime
 from pathlib import Path
+
+# --- BEGIN: Import fix for direct script execution ---
+import pathlib
+_here = pathlib.Path(__file__).resolve().parent
+_src = _here.parent
+if str(_src) not in sys.path:
+    sys.path.insert(0, str(_src))
+# --- END: Import fix ---
+
 from ai_software_factory.domain.enums import WorkflowStage, EventType, WorkflowStatus
 from ai_software_factory.domain.models import CodeImplementation, TestResult
 from ai_software_factory.artifacts.markdown import render_artifact_markdown
@@ -247,11 +257,12 @@ def main() -> None:
         # Pre-resume escalation check
         escalation_exists = False
         for artifact in engine.artifact_store.list_by_workflow(resume_workflow_id):
-            if artifact.__class__.__name__ == "EscalationArtifact" and getattr(artifact, "stage", None) == (resume_stage or engine.state_store.load(resume_workflow_id).current_stage):
+            if artifact.__class__.__name__ == "EscalationArtifact" and getattr(artifact, "escalation_status", None) != "RESOLVED":
                 escalation_exists = True
                 break
         if not escalation_exists:
-            print(f"Cannot resume: Workflow {resume_workflow_id} has no escalation artifact to resolve at stage {(resume_stage or engine.state_store.load(resume_workflow_id).current_stage)}.")
+            print(f"Cannot resume: Workflow {resume_workflow_id} has no unresolved escalation artifact to resolve.")
+            sys.exit(1)
         else:
             try:
                 state = engine.resume_from_escalation(

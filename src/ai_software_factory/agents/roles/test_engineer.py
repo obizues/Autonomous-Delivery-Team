@@ -173,18 +173,26 @@ def test_invalid_records_include_reason():
         sandbox_path = implementation.workspace_path
         repo_profile = self._detect_repo_profile(sandbox_path)
 
+        lane_id = getattr(state, 'engineer_lane', None) or getattr(state, 'lane_id', None) or "main"
+        revision = getattr(state, 'revision', 1)
+        # Use unique test filenames per lane and revision
+        test_file_validator = f"tests/test_file_validator_r{revision}_{lane_id}.py"
+        test_upload_service = f"tests/test_upload_service_r{revision}_{lane_id}.py"
+        test_auth_service = f"tests/test_auth_service_r{revision}_{lane_id}.py"
+        test_pipeline = f"tests/test_pipeline_r{revision}_{lane_id}.py"
+
         if repo_profile == "upload":
             self.patch_engine.apply_patch(
-                file_path=f"{sandbox_path}/tests/test_file_validator.py",
+                file_path=f"{sandbox_path}/{test_file_validator}",
                 new_content=self._test_file_validator_content(),
             )
             self.patch_engine.apply_patch(
-                file_path=f"{sandbox_path}/tests/test_upload_service.py",
+                file_path=f"{sandbox_path}/{test_upload_service}",
                 new_content=self._test_upload_service_content(),
             )
             generated_test_files = [
-                "tests/test_file_validator.py",
-                "tests/test_upload_service.py",
+                test_file_validator,
+                test_upload_service,
             ]
             unit_tests = [
                 "test_supported_file_type_validation",
@@ -202,10 +210,10 @@ def test_invalid_records_include_reason():
             ]
         elif repo_profile == "auth":
             self.patch_engine.apply_patch(
-                file_path=f"{sandbox_path}/tests/test_auth_service.py",
+                file_path=f"{sandbox_path}/{test_auth_service}",
                 new_content=self._test_auth_service_content(),
             )
-            generated_test_files = ["tests/test_auth_service.py"]
+            generated_test_files = [test_auth_service]
             unit_tests = [
                 "test_invalid_password_denied",
                 "test_account_locks_after_three_failed_attempts",
@@ -218,10 +226,10 @@ def test_invalid_records_include_reason():
             ]
         elif repo_profile == "pipeline":
             self.patch_engine.apply_patch(
-                file_path=f"{sandbox_path}/tests/test_pipeline.py",
+                file_path=f"{sandbox_path}/{test_pipeline}",
                 new_content=self._test_pipeline_content(),
             )
-            generated_test_files = ["tests/test_pipeline.py"]
+            generated_test_files = [test_pipeline]
             unit_tests = [
                 "test_duplicate_ids_are_rejected_with_reason",
                 "test_invalid_records_include_reason",
@@ -381,4 +389,16 @@ def test_invalid_records_include_reason():
         )
 
         notes = "Test validation gate approved." if effective_passed else "Test validation gate requested changes."
-        return StageResult(produced_artifacts=[test_result, review], decision=decision, notes=notes)
+        escalation_request = None
+        if forced_escalation:
+            from ai_software_factory.workflow.stage_result import EscalationRequest
+            escalation_request = EscalationRequest(
+                reason="Escalation demo mode: forced escalation for demo/testing.",
+                raised_by=self.role,
+            )
+        return StageResult(
+            produced_artifacts=[test_result, review],
+            decision=decision,
+            notes=notes,
+            escalation_request=escalation_request,
+        )

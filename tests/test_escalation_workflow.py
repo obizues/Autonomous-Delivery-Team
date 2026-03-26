@@ -1,4 +1,7 @@
 import pytest
+import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 from ai_software_factory.workflow.engine import WorkflowEngine
 from ai_software_factory.persistence.state_store import InMemoryStateStore
 from ai_software_factory.persistence.artifact_store import InMemoryArtifactStore
@@ -11,7 +14,9 @@ from dataclasses import dataclass, field
 from ai_software_factory.agents.base import Agent
 from ai_software_factory.domain.enums import WorkflowStage, WorkflowStatus
 
-class DummyAgent:
+from ai_software_factory.agents.base import Agent
+
+class DummyAgent(Agent):
     @dataclass
     class Result:
         produced_artifacts: list = field(default_factory=list)
@@ -51,7 +56,7 @@ def test_escalation_workflow():
     )
     backlog_item = BacklogItem(
         workflow_id="test_workflow_escalation",
-        stage="BACKLOG_INTAKE",
+        stage=WorkflowStage.BACKLOG_INTAKE,
         created_by="ProductOwner",
         artifact_id="test_backlog_escalation",
         title="Test Backlog Escalation",
@@ -60,19 +65,12 @@ def test_escalation_workflow():
         user_story="Test story",
         business_value="Test value"
     )
-    backlog_item = BacklogItem(
-        workflow_id="test_workflow",
-        stage=WorkflowStage.BACKLOG_INTAKE,
-        created_by="ProductOwner",
-        artifact_id="test_backlog",
-        title="Test Backlog"
-    )
     state = engine.start(backlog_item)
     # Simulate escalation
     state.status = WorkflowStatus.ESCALATED
     # Explicitly create escalation artifact
     from ai_software_factory.domain.models import EscalationArtifact
-    from ai_software_factory.domain.enums import WorkflowStage, ArtifactStatus
+    from ai_software_factory.domain.enums import ArtifactStatus
     escalation_artifact_id = "escalation_artifact_1"
     escalation_artifact = EscalationArtifact(
         workflow_id=state.workflow_id,

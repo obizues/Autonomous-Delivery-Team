@@ -38,6 +38,33 @@ class TestRunOutcome:
 
 
 class PytestRunner:
+    import shutil
+
+    def _cleanup_sandboxes_and_caches(self):
+        # Remove all sandbox_repos and Python cache files before running tests
+        sandbox_root = os.path.join(os.getcwd(), 'sandbox_repos')
+        if os.path.exists(sandbox_root):
+            for entry in os.listdir(sandbox_root):
+                full_path = os.path.join(sandbox_root, entry)
+                try:
+                    if os.path.isdir(full_path):
+                        self.shutil.rmtree(full_path, ignore_errors=True)
+                    else:
+                        os.remove(full_path)
+                except Exception:
+                    pass
+        # Remove all __pycache__ and .pyc files
+        for root, dirs, files in os.walk(os.getcwd()):
+            for d in dirs:
+                if d == '__pycache__':
+                    self.shutil.rmtree(os.path.join(root, d), ignore_errors=True)
+            for f in files:
+                if f.endswith('.pyc'):
+                    try:
+                        os.remove(os.path.join(root, f))
+                    except Exception:
+                        pass
+
     def run_repo_tests(
         self,
         repo_path: str | Path,
@@ -45,6 +72,7 @@ class PytestRunner:
         targeted_tests: list[str] | None = None,
         baseline_failures: list[str] | None = None,
     ) -> TestRunResult:
+        self._cleanup_sandboxes_and_caches()
         root = Path(repo_path).resolve()
         logs_dir = root / "run_logs"
         logs_dir.mkdir(parents=True, exist_ok=True)

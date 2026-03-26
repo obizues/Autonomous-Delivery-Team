@@ -15,10 +15,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent.parent
-VENV_PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
-VENV_STREAMLIT = ROOT / ".venv" / "Scripts" / "streamlit.exe"
-APP = ROOT / "ui" / "app.py"
+
+# Always resolve project root as the folder containing 'src'
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = PROJECT_ROOT / "src"
+# Use .venv inside the autonomous_delivery directory
+VENV_PYTHON = PROJECT_ROOT / "autonomous_delivery" / ".venv" / "Scripts" / "python.exe"
+VENV_STREAMLIT = PROJECT_ROOT / "autonomous_delivery" / ".venv" / "Scripts" / "streamlit.exe"
+# Correct APP path: project_root/autonomous_delivery/ui/app.py
+APP = PROJECT_ROOT / "autonomous_delivery" / "ui" / "app.py"
 DEFAULT_PORT = 8501
 UI_SQLITE_PATH = "generated_workspace/asf_state_ui.db"
 
@@ -29,12 +34,13 @@ class WorkflowLauncher:
     """
     def __init__(self, args):
         self.args = args
-        self.root = Path(__file__).parent.parent
-        self.venv_python = self.root / ".venv" / "Scripts" / "python.exe"
-        self.venv_streamlit = self.root / ".venv" / "Scripts" / "streamlit.exe"
-        self.app = self.root / "ui" / "app.py"
+        self.project_root = PROJECT_ROOT
+        self.src_root = SRC_ROOT
+        self.venv_python = VENV_PYTHON
+        self.venv_streamlit = VENV_STREAMLIT
+        self.app = APP
         self.default_port = 8501
-        self.ui_sqlite_path = "generated_workspace/asf_state_ui.db"
+        self.ui_sqlite_path = UI_SQLITE_PATH
 
     def _is_port_available(self, port: int) -> bool:
         try:
@@ -59,6 +65,12 @@ class WorkflowLauncher:
 
     def run_workflow(self) -> None:
         print("\n[1/2] Running workflow engine...\n")
+        print(f"[DEBUG] venv_python: {self.venv_python}")  # noqa: F541
+        print(f"[DEBUG] project_root: {self.project_root}")  # noqa: F541
+        print(f"[DEBUG] PYTHONPATH: src")  # noqa: F541
+        if not self.venv_python.exists():
+            print(f"\nERROR: Python executable not found at {self.venv_python}\nDid you create the virtual environment? Try: python -m venv .venv && .venv\\Scripts\\activate")  # noqa: F541
+            sys.exit(1)
         env = {
             **__import__("os").environ,
             "PYTHONPATH": "src",
@@ -70,11 +82,15 @@ class WorkflowLauncher:
             env["ASF_REPO_URL"] = self.args.repo_url
         if self.args.repo_ref:
             env["ASF_REPO_REF"] = self.args.repo_ref
-        result = subprocess.run(
-            [str(self.venv_python), "-m", "ai_software_factory"],
-            cwd=self.root,
-            env=env,
-        )
+        try:
+            result = subprocess.run(
+                [str(self.venv_python), "-m", "autonomous_delivery.src.ai_software_factory"],
+                cwd=self.project_root,
+                env=env,
+            )
+        except FileNotFoundError as e:
+            print(f"\nERROR: {e}\n[LAUNCHER] Could not find file. Check that all paths are correct and the virtual environment is set up.")
+            sys.exit(1)
         if result.returncode != 0:
             print("\nERROR: Workflow engine failed.")
             sys.exit(result.returncode)
@@ -82,8 +98,8 @@ class WorkflowLauncher:
     def run_escalation_demo(self) -> None:
         print("\n[1/2] Running escalation demo...\n")
         result = subprocess.run(
-            [str(self.venv_python), "scripts/demo_escalation.py"],
-            cwd=self.root,
+            [str(self.venv_python), str(self.project_root / "scripts" / "demo_escalation.py")],
+            cwd=self.project_root,
             env={
                 **__import__("os").environ,
                 "PYTHONPATH": "src",
@@ -97,11 +113,12 @@ class WorkflowLauncher:
         preferred_port = self.args.port
         selected_port = self._select_dashboard_port(preferred_port)
         if selected_port != preferred_port:
-            print(f"\nPort {preferred_port} is in use. Falling back to port {selected_port}.\n")
+            print(f"\nPort {preferred_port} is in use. Falling back to port {selected_port}.\n")  # noqa: F541
         print(
             f"\n[{('2/2' if not self.args.ui_only else '1/1')}] Starting dashboard at "
             f"http://localhost:{selected_port}\n"
         )
+        env = {**__import__('os').environ, "PYTHONPATH": str(self.project_root)}
         try:
             result = subprocess.run(
                 [
@@ -111,13 +128,14 @@ class WorkflowLauncher:
                     "--server.headless=false",
                     "--browser.gatherUsageStats=false",
                 ],
-                cwd=self.root,
+                cwd=self.project_root,
+                env=env,
             )
         except KeyboardInterrupt:
             print("\nDashboard stopped by user.")
             return
         if result.returncode != 0:
-            print(f"\nDashboard exited with code {result.returncode}.")
+            print(f"\nDashboard exited with code {result.returncode}.")  # noqa: F541
 
 
 parser = argparse.ArgumentParser(description="AI Software Factory launcher")

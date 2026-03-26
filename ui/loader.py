@@ -11,7 +11,7 @@ from typing import Any
 
 import streamlit as st
 
-from config import *
+from autonomous_delivery.ui.config import DEMO_OUTPUT, STAGE_ORDER
 
 
 @st.cache_data(ttl=5)

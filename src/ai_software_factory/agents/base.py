@@ -11,10 +11,12 @@ from ai_software_factory.workflow.state import WorkflowState
 ArtifactType = TypeVar("ArtifactType", bound=BaseArtifact)
 
 
+
 @dataclass
 class AgentContext:
     workflow_state: WorkflowState
     artifacts: list[BaseArtifact]
+    agent_config: dict = None
 
     def latest(self, artifact_type: type[ArtifactType]) -> ArtifactType | None:
         for artifact in reversed(self.artifacts):

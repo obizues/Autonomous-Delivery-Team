@@ -10,15 +10,15 @@ For full type safety, suppressed errors can be addressed, but this is not requir
 
 This project is maintained in the GitHub repository [obizues/Autonomous-Delivery-Team](https://github.com/obizues/Autonomous-Delivery-Team) on the `main` branch.
 
-Version: **v0.4.1**
+Version: **v0.5.0**
 
-![Release](https://img.shields.io/badge/release-v0.4.1-2563eb)
+![Release](https://img.shields.io/badge/release-v0.5.0-2563eb)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
 ![Docs](https://img.shields.io/badge/docs-ready-16a34a)
 
-Autonomous Delivery System enables automated software delivery workflows with cross-repo autonomy.
+Autonomous Delivery System enables multi-agent, demo-ready, fully automated software delivery workflows with step-by-step visual playback, live event feed, artifact/PR drilldown, and robust test isolation.
 
-**Status:** All tests passing (v0.4.1, cross-repo autonomy, dummy agent logic, escalation patch, TODOs for real features)
+**Status:** All tests passing (v0.5.0, multi-agent workflow, step-by-step replay, live event feed, artifact drilldown, robust test isolation, demo-ready UI)
 
 See docs/ROADMAP.md and docs/V0_4_CROSS_REPO_AUTONOMY_BACKLOG.md for planning and backlog.
 
@@ -42,16 +42,9 @@ See docs/ROADMAP.md and docs/V0_4_CROSS_REPO_AUTONOMY_BACKLOG.md for planning an
 
 ## What This Project Does
 
-- Runs a multi-stage delivery workflow with role-specialized agents.
-- Executes **parallel engineer agents** in **parallel lanes** during implementation.
-- Produces real artifacts, event logs, and state snapshots for each run.
-- Enforces review gates (including merge-conflict and test-validation checks).
-- Supports escalation and human-guided resume flows with explicit intervention decision capture.
-- Provides a Streamlit dashboard for end-to-end visibility.
 
-## Repository References
-- Repo: obizues/Autonomous-Delivery-Team
 - Branch: main
+See the chat for the current TODO plan and project steps.
 - Owner: obizues
 
 ## Workflow Stages
@@ -211,5 +204,5 @@ For external viewers, include dashboard screenshots under `docs/assets/screensho
 
 ## Release
 
-This repository is prepared for external viewing as **v0.4.1**.
-See `CHANGELOG.md` and `docs/RELEASE_NOTES_v0.4.1.md` for details.
+This repository is prepared for external viewing as **v0.5.0**.
+See `CHANGELOG.md` and `docs/RELEASE_NOTES_v0.5.0.md` for details.

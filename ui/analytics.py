@@ -7,13 +7,13 @@ from __future__ import annotations
 import ast
 import re
 from collections import defaultdict
+from autonomous_delivery.ui.config import STAGE_ORDER, STAGE_META, ARTIFACT_TYPE_LABELS, REVIEW_GATES
 from typing import Any
 
-from config import *
+
 from query import (
     artifacts_by_stage,
     first_artifact,
-    latest_artifact,
     list_added,
     stage_decisions,
 )
@@ -133,7 +133,7 @@ def engineer_lane_insights_by_revision(events: list[dict]) -> dict[int, list[dic
 
         grouped[revision] = sorted(
             lane_rows.values(),
-            key=lambda row: int(str(row["lane_id"]).split("_")[-1]) if str(row["lane_id"]).split("_")[-1].isdigit() else 999,
+            key=lambda row: int(str(row["lane_id"]).split("_")[-1]) if str(row["lane_id"]).split("_")[-1].isdigit() else 999,  # noqa: E501
         )
 
     return grouped
@@ -178,7 +178,7 @@ def cross_review_assignments_by_revision(artifacts: list[dict]) -> dict[int, lis
     for revision, rows in grouped.items():
         result[revision] = sorted(
             rows,
-            key=lambda row: int(str(row["lane_id"]).split("_")[-1]) if str(row["lane_id"]).split("_")[-1].isdigit() else 999,
+            key=lambda row: int(str(row["lane_id"]).split("_")[-1]) if str(row["lane_id"]).split("_")[-1].isdigit() else 999,  # noqa: E501
         )
     return result
 

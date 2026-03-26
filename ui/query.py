@@ -8,7 +8,8 @@ import re
 from collections import defaultdict
 from typing import Any
 
-from config import *
+
+from autonomous_delivery.ui.config import STAGE_ORDER, STAGE_META
 
 
 # ── Formatting ────────────────────────────────────────────────────────────────

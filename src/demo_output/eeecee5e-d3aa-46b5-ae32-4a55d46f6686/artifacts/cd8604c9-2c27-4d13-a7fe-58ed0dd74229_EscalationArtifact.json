@@ -1,0 +1,15 @@
+{
+  "workflow_id": "eeecee5e-d3aa-46b5-ae32-4a55d46f6686",
+  "stage": "MERGE_CONFLICT_GATE",
+  "created_by": "workflow_engine",
+  "artifact_id": "cd8604c9-2c27-4d13-a7fe-58ed0dd74229",
+  "version": 2,
+  "created_at": "2026-03-26T21:48:19.672614+00:00",
+  "status": "FINAL",
+  "reason": "⛔ Workflow stalled: No progress in test failure reduction across two revision attempts. The team has iterated twice without fixing any failing tests. This requires human review and decision on how to proceed (redesign approach, escalate to specialist, etc.). Summary: 0 failures fixed, no new failures=True",
+  "raised_by": "workflow_engine",
+  "escalation_status": "OPEN",
+  "human_response": null,
+  "resolution_summary": "",
+  "resolved_at": null
+}

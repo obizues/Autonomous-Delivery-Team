@@ -1,0 +1,20 @@
+{
+  "workflow_id": "6e821c7c-4e01-4265-8d88-cb69bd4f08c9",
+  "stage": "BACKLOG_INTAKE",
+  "created_by": "product_owner",
+  "artifact_id": "28a6733f-3d1e-4808-8c80-90e456a1aca2",
+  "version": 1,
+  "created_at": "2026-03-26T21:33:58.672814+00:00",
+  "status": "FINAL",
+  "title": "Secure Document Upload Validation",
+  "description": "Users should not be able to upload documents exceeding a maximum size. The upload flow should reject oversized files with a clear error payload while allowing valid uploads.",
+  "problem_statement": "The current upload service lacks explicit max-size validation and does not return clear error reasons for rejected oversized files.",
+  "user_story": "As a user, I want oversized uploads to be rejected immediately with a clear reason, so I can fix the file and retry quickly.",
+  "business_value": "Improves reliability and user trust by enforcing size policy at the upload boundary.",
+  "acceptance_criteria": [
+    "files larger than the limit are rejected",
+    "error payload includes reason",
+    "valid files continue to upload",
+    "tests verify both accepted and rejected cases"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "workflow_id": "8fc8c4de-4fc3-466c-bc64-5dc22838e866",
+  "stage": "MERGE_CONFLICT_GATE",
+  "created_by": "test_engineer",
+  "artifact_id": "b184f5d8-6ab4-417a-aeaf-b689f0e4e446",
+  "version": 2,
+  "created_at": "2026-03-26T21:35:27.030123+00:00",
+  "status": "FINAL",
+  "reviewer": "test_engineer",
+  "decision": "REQUEST_CHANGES",
+  "comments": "Sandbox pytest failed. Revision required to address failing tests.",
+  "issues_identified": [],
+  "suggested_changes": [
+    "Use failing pytest output for profile-targeted patching",
+    "Address failing tests for repo profile 'generic'"
+  ],
+  "pull_request_id": "83d17842-2537-482d-a1cf-3438e67c5521"
+}

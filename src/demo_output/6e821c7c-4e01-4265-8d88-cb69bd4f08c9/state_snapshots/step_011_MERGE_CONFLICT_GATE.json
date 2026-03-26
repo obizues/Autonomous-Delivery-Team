@@ -1,0 +1,60 @@
+{
+  "backlog_item_id": "28a6733f-3d1e-4808-8c80-90e456a1aca2",
+  "workflow_id": "6e821c7c-4e01-4265-8d88-cb69bd4f08c9",
+  "current_stage": "DONE",
+  "status": "ESCALATED",
+  "revision": 2,
+  "stage_history": [
+    "BACKLOG_INTAKE",
+    "PRODUCT_DEFINITION",
+    "REQUIREMENTS_ANALYSIS",
+    "ARCHITECTURE_DESIGN",
+    "IMPLEMENTATION",
+    "PULL_REQUEST_CREATED",
+    "MERGE_CONFLICT_GATE",
+    "IMPLEMENTATION",
+    "PULL_REQUEST_CREATED",
+    "MERGE_CONFLICT_GATE"
+  ],
+  "artifact_ids": [
+    "28a6733f-3d1e-4808-8c80-90e456a1aca2",
+    "47fbbe39-a481-497d-8c19-7a439b44ade8",
+    "c782d335-72da-48b2-824b-2dc79d95416f",
+    "a81962f4-7baa-4c87-950e-327055c61a6d",
+    "47736fd6-33d0-46e0-8e9c-ce86f4112df7",
+    "53343a36-01aa-487a-9fb2-dd8fab9ea6eb",
+    "aaadacac-4206-4efc-a7d0-7f1599161059",
+    "bcd08c6b-d117-4242-a1dd-6499a6cbff7c",
+    "8de14648-c6ce-4fed-a257-8cb771eee3ce",
+    "fa0680d9-e59e-4780-aba7-1b4abd8b6d06",
+    "b6a6e7c7-d89b-4828-bd9b-a0557528cd73",
+    "ae6a1bb8-633d-4b5f-8900-16f652882874",
+    "91c4d560-6576-4832-ac89-e7dd8862d605",
+    "3e5d5a76-8535-4dae-b68c-5164b8f0810c",
+    "10d30c08-2dc6-460d-a942-2839a6991da1",
+    "6812d6e6-b471-4cce-a087-2c55b2138e48",
+    "2fcc934a-7e8a-4c5d-bc8e-211879ade644",
+    "55454e03-3581-4d9b-b582-ee85998d1b2e"
+  ],
+  "pull_request_ids": [
+    "aaadacac-4206-4efc-a7d0-7f1599161059",
+    "3e5d5a76-8535-4dae-b68c-5164b8f0810c"
+  ],
+  "review_feedback_ids": [
+    "bcd08c6b-d117-4242-a1dd-6499a6cbff7c",
+    "fa0680d9-e59e-4780-aba7-1b4abd8b6d06",
+    "91c4d560-6576-4832-ac89-e7dd8862d605",
+    "10d30c08-2dc6-460d-a942-2839a6991da1",
+    "2fcc934a-7e8a-4c5d-bc8e-211879ade644"
+  ],
+  "approval_ids": [
+    "96882f09-5ee5-45ab-994a-39113851a8ee",
+    "6ab6959f-e31a-4fe8-8d26-24517277c97d",
+    "cf5fa71a-27a5-4d4e-973d-33cb10e713fe",
+    "70db1c5f-224e-455c-a884-1144f2beeb7b"
+  ],
+  "escalation_ids": [
+    "55454e03-3581-4d9b-b582-ee85998d1b2e"
+  ],
+  "last_updated_at": "2026-03-26T21:34:01.814129+00:00"
+}

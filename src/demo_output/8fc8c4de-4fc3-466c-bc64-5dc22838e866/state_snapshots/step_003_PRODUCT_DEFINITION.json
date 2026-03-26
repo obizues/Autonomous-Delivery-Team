@@ -1,0 +1,21 @@
+{
+  "backlog_item_id": "c67c584e-8949-44fd-a18a-62151d36a7ff",
+  "workflow_id": "8fc8c4de-4fc3-466c-bc64-5dc22838e866",
+  "current_stage": "REQUIREMENTS_ANALYSIS",
+  "status": "IN_PROGRESS",
+  "revision": 1,
+  "stage_history": [
+    "BACKLOG_INTAKE",
+    "PRODUCT_DEFINITION"
+  ],
+  "artifact_ids": [
+    "c67c584e-8949-44fd-a18a-62151d36a7ff",
+    "1d106935-c040-4a16-8c28-364706a55488",
+    "6d1ff045-010f-4489-bbab-8696481e7ba9"
+  ],
+  "pull_request_ids": [],
+  "review_feedback_ids": [],
+  "approval_ids": [],
+  "escalation_ids": [],
+  "last_updated_at": "2026-03-26T21:35:24.229876+00:00"
+}

@@ -1,0 +1,60 @@
+{
+  "backlog_item_id": "c65d8ee7-2153-41fc-8397-520190017946",
+  "workflow_id": "a0de286b-7559-4a11-a2c1-1d77e94c21b6",
+  "current_stage": "DONE",
+  "status": "ESCALATED",
+  "revision": 2,
+  "stage_history": [
+    "BACKLOG_INTAKE",
+    "PRODUCT_DEFINITION",
+    "REQUIREMENTS_ANALYSIS",
+    "ARCHITECTURE_DESIGN",
+    "IMPLEMENTATION",
+    "PULL_REQUEST_CREATED",
+    "MERGE_CONFLICT_GATE",
+    "IMPLEMENTATION",
+    "PULL_REQUEST_CREATED",
+    "MERGE_CONFLICT_GATE"
+  ],
+  "artifact_ids": [
+    "c65d8ee7-2153-41fc-8397-520190017946",
+    "93f74ad6-182e-400e-829d-54dc534987d7",
+    "5aff61a9-fc5d-4aa0-94a7-90c7acc748e1",
+    "9e76fc1f-a449-4ca9-9405-14cddc3ed31b",
+    "786255f6-5168-4494-9c74-f88eca4baf9a",
+    "480c659f-8658-40dd-9d0f-84a3de42ff32",
+    "7c86dca8-2d5a-48e8-899d-1332eea3c3ee",
+    "429ee3b2-bb82-4943-8e88-52396413784d",
+    "c60061f7-c087-4f25-bad0-74266bcf5d73",
+    "0bd13e90-e648-4c42-b2e6-997bf7056c0d",
+    "7af81f06-edcd-4df6-a4a8-662e88a55feb",
+    "a8849838-98cb-4788-a983-1f3533d752d7",
+    "ce6b35a8-473f-477e-9eea-40c5bcf082e8",
+    "ee52769e-dd98-4915-b04d-3d6acf792824",
+    "0816b0f8-ea70-42a9-ae22-2507592356c4",
+    "a2704b5d-13f3-44e3-8ec4-0557729dec99",
+    "ccd660f6-32e2-410a-93fe-d27486d6f7ba",
+    "dec8e32e-45cf-44dd-8c6d-86dc67bce0a1"
+  ],
+  "pull_request_ids": [
+    "7c86dca8-2d5a-48e8-899d-1332eea3c3ee",
+    "ee52769e-dd98-4915-b04d-3d6acf792824"
+  ],
+  "review_feedback_ids": [
+    "429ee3b2-bb82-4943-8e88-52396413784d",
+    "0bd13e90-e648-4c42-b2e6-997bf7056c0d",
+    "ce6b35a8-473f-477e-9eea-40c5bcf082e8",
+    "0816b0f8-ea70-42a9-ae22-2507592356c4",
+    "ccd660f6-32e2-410a-93fe-d27486d6f7ba"
+  ],
+  "approval_ids": [
+    "4ef5d43f-fa15-4857-8779-b8e355a71a50",
+    "4328331e-be68-43da-a15a-6bc35b87384b",
+    "01d42cdc-8598-4775-a68d-0a070f1e6d25",
+    "4238824e-1541-4ed2-8149-5cfa59063f39"
+  ],
+  "escalation_ids": [
+    "dec8e32e-45cf-44dd-8c6d-86dc67bce0a1"
+  ],
+  "last_updated_at": "2026-03-26T21:37:25.596287+00:00"
+}

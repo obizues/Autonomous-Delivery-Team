@@ -1,0 +1,27 @@
+{
+  "backlog_item_id": "ae67ec6b-9b03-4f85-85b4-efb4fd483650",
+  "workflow_id": "aaa1567f-1683-424e-af05-90b8c3bdf619",
+  "current_stage": "PULL_REQUEST_CREATED",
+  "status": "IN_PROGRESS",
+  "revision": 1,
+  "stage_history": [
+    "BACKLOG_INTAKE",
+    "PRODUCT_DEFINITION",
+    "REQUIREMENTS_ANALYSIS",
+    "ARCHITECTURE_DESIGN",
+    "IMPLEMENTATION"
+  ],
+  "artifact_ids": [
+    "ae67ec6b-9b03-4f85-85b4-efb4fd483650",
+    "e0b31e63-af87-41f6-a069-59832aacb125",
+    "782ea3a5-6708-411d-a648-df749b1a5ec4",
+    "cc53b414-d31b-487b-8f26-e5eee8fcc791",
+    "0bbec232-f2d3-41ad-9cb4-df1ce6facab7",
+    "841a0c0f-cb96-428f-8f64-5e5c6d502001"
+  ],
+  "pull_request_ids": [],
+  "review_feedback_ids": [],
+  "approval_ids": [],
+  "escalation_ids": [],
+  "last_updated_at": "2026-03-26T21:42:54.136945+00:00"
+}

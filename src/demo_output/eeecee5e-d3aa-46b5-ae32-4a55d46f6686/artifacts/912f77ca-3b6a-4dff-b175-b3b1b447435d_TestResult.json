@@ -1,0 +1,43 @@
+{
+  "workflow_id": "eeecee5e-d3aa-46b5-ae32-4a55d46f6686",
+  "stage": "MERGE_CONFLICT_GATE",
+  "created_by": "test_engineer",
+  "artifact_id": "912f77ca-3b6a-4dff-b175-b3b1b447435d",
+  "version": 2,
+  "created_at": "2026-03-26T21:48:19.661468+00:00",
+  "status": "FINAL",
+  "passed": false,
+  "total_cases": 0,
+  "failed_cases": 0,
+  "failures_reduced": 0,
+  "no_new_failures": true,
+  "stable_pass_streak": 0,
+  "regression_detected": false,
+  "new_failures": [],
+  "targeted_tests": [],
+  "targeted_command": "",
+  "targeted_exit_code": 0,
+  "workspace_path": "C:\\Users\\mro84\\Autonomous Software Delivery System\\src\\sandbox_repos\\run_eeecee5e-d3aa-46b5-ae32-4a55d46f6686",
+  "run_log_path": "C:\\Users\\mro84\\Autonomous Software Delivery System\\src\\sandbox_repos\\run_eeecee5e-d3aa-46b5-ae32-4a55d46f6686\\run_logs\\pytest_rev_2_20260326_214819.log",
+  "test_command": "C:\\Users\\mro84\\Autonomous Software Delivery System\\src\\autonomous_delivery\\.venv\\Scripts\\python.exe -m pytest -q tests",
+  "output": "no tests ran in 0.00s\n\nERROR: file or directory not found: tests",
+  "stdout": "\nno tests ran in 0.00s\n",
+  "stderr": "ERROR: file or directory not found: tests\n\n",
+  "failing_tests": [],
+  "generated_test_files": [],
+  "unit_tests": [],
+  "integration_tests": [],
+  "edge_case_coverage": [
+    "no profile-specific tests generated"
+  ],
+  "coverage_estimate": "Sandbox pytest failed with 0 failing tests.",
+  "details": [
+    "pytest exit code: 4",
+    "targeted pytest exit code: N/A",
+    "new failures: none",
+    "pytest log: C:\\Users\\mro84\\Autonomous Software Delivery System\\src\\sandbox_repos\\run_eeecee5e-d3aa-46b5-ae32-4a55d46f6686\\run_logs\\pytest_rev_2_20260326_214819.log",
+    "Tests executed in normal mode.",
+    "Tests executed inside sandbox repo copy."
+  ],
+  "pull_request_id": "1f544b24-0c5c-4fe7-95c6-9617382b7145"
+}

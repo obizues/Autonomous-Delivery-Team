@@ -1,0 +1,46 @@
+{
+  "backlog_item_id": "c67c584e-8949-44fd-a18a-62151d36a7ff",
+  "workflow_id": "8fc8c4de-4fc3-466c-bc64-5dc22838e866",
+  "current_stage": "PULL_REQUEST_CREATED",
+  "status": "IN_PROGRESS",
+  "revision": 2,
+  "stage_history": [
+    "BACKLOG_INTAKE",
+    "PRODUCT_DEFINITION",
+    "REQUIREMENTS_ANALYSIS",
+    "ARCHITECTURE_DESIGN",
+    "IMPLEMENTATION",
+    "PULL_REQUEST_CREATED",
+    "MERGE_CONFLICT_GATE",
+    "IMPLEMENTATION"
+  ],
+  "artifact_ids": [
+    "c67c584e-8949-44fd-a18a-62151d36a7ff",
+    "1d106935-c040-4a16-8c28-364706a55488",
+    "6d1ff045-010f-4489-bbab-8696481e7ba9",
+    "24ba3771-1e8b-4bcf-958c-c50d53563952",
+    "beecec73-0f5d-4552-8601-d9945439cc67",
+    "82bfe81a-09a7-4c1f-a4e0-20d50b1fb55b",
+    "fb07039d-0bce-45a7-9772-d0d9e0a68328",
+    "6f299aaf-8422-4c76-a993-06b7e4442c00",
+    "e0d3ab17-382a-4b5f-9ba1-78ab0b1e61e3",
+    "0d5c6392-d43b-4926-a861-1600482cc11a",
+    "4cf0eac2-022a-489b-a98d-8b21b385c7ec",
+    "1f832abe-4752-467a-b410-f506ef34453f",
+    "0863f8a9-e3e9-4410-b47f-67c06c3295a1"
+  ],
+  "pull_request_ids": [
+    "fb07039d-0bce-45a7-9772-d0d9e0a68328"
+  ],
+  "review_feedback_ids": [
+    "6f299aaf-8422-4c76-a993-06b7e4442c00",
+    "0d5c6392-d43b-4926-a861-1600482cc11a",
+    "0863f8a9-e3e9-4410-b47f-67c06c3295a1"
+  ],
+  "approval_ids": [
+    "c4d9ff24-3321-4d4b-8a82-904892ded529",
+    "d67a734e-adfd-497b-9aea-e339438ddd31"
+  ],
+  "escalation_ids": [],
+  "last_updated_at": "2026-03-26T21:35:26.188216+00:00"
+}

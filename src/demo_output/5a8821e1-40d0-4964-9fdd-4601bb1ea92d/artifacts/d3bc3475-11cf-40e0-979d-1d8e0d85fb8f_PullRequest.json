@@ -1,0 +1,20 @@
+{
+  "workflow_id": "5a8821e1-40d0-4964-9fdd-4601bb1ea92d",
+  "stage": "PULL_REQUEST_CREATED",
+  "created_by": "engineer",
+  "artifact_id": "d3bc3475-11cf-40e0-979d-1d8e0d85fb8f",
+  "version": 2,
+  "created_at": "2026-03-26T21:34:31.076341+00:00",
+  "status": "FINAL",
+  "title": "feat(repo-mode): Secure Document Upload Validation — revision 2",
+  "description": "Applies semantic repo-aware patching in sandbox based on failure context.",
+  "implementation_artifact_id": "e43e8c26-1a69-4016-886f-223759250d16",
+  "files_modified": [],
+  "architecture_alignment": "Source modules remain isolated by responsibility while applying targeted fixes.",
+  "test_coverage": "pytest suite validates profile-specific behavior in sandbox.",
+  "known_limitations": [
+    "Symbol-level patching currently targets top-level functions only",
+    "Semantic mapper is heuristic-based and Python-only"
+  ],
+  "linked_review_ids": []
+}

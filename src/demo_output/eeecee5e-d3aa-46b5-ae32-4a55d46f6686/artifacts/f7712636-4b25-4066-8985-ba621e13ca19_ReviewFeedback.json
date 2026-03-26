@@ -1,0 +1,15 @@
+{
+  "workflow_id": "eeecee5e-d3aa-46b5-ae32-4a55d46f6686",
+  "stage": "MERGE_CONFLICT_GATE",
+  "created_by": "engineer",
+  "artifact_id": "f7712636-4b25-4066-8985-ba621e13ca19",
+  "version": 1,
+  "created_at": "2026-03-26T21:48:16.738943+00:00",
+  "status": "FINAL",
+  "reviewer": "merge_conflict_guard",
+  "decision": "APPROVED",
+  "comments": "Merge conflict gate analysis:\n- Pull requests inspected: 1\n- Files with multi-lane overlap: 0\n- Files containing merge markers: 0\n✓ No merge conflicts detected. Safe to continue to architecture review.",
+  "issues_identified": [],
+  "suggested_changes": [],
+  "pull_request_id": "6ef155d3-8383-4d2f-ae94-bf9b8958f671"
+}

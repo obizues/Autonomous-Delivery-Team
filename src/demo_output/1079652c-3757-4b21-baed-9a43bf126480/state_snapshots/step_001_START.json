@@ -1,0 +1,16 @@
+{
+  "backlog_item_id": "70782c06-9320-4ce4-92d5-a30021028ff4",
+  "workflow_id": "1079652c-3757-4b21-baed-9a43bf126480",
+  "current_stage": "BACKLOG_INTAKE",
+  "status": "IN_PROGRESS",
+  "revision": 1,
+  "stage_history": [],
+  "artifact_ids": [
+    "70782c06-9320-4ce4-92d5-a30021028ff4"
+  ],
+  "pull_request_ids": [],
+  "review_feedback_ids": [],
+  "approval_ids": [],
+  "escalation_ids": [],
+  "last_updated_at": "2026-03-26T21:25:33.580446+00:00"
+}

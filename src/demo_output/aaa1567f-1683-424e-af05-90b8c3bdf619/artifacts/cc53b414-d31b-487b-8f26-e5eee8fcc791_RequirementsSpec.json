@@ -1,0 +1,45 @@
+{
+  "workflow_id": "aaa1567f-1683-424e-af05-90b8c3bdf619",
+  "stage": "REQUIREMENTS_ANALYSIS",
+  "created_by": "business_analyst",
+  "artifact_id": "cc53b414-d31b-487b-8f26-e5eee8fcc791",
+  "version": 1,
+  "created_at": "2026-03-26T21:42:54.099966+00:00",
+  "status": "FINAL",
+  "summary": "Detailed requirements for 'Secure Document Upload Validation'. Users should not be able to upload documents exceeding a maximum size. The upload flow should reject oversized files with a clear error payload while allowing valid uploads. Problem focus: The current upload service lacks explicit max-size validation and does not return clear error reasons for rejected oversized files.",
+  "functional_requirements": [
+    "FR-01: The implementation must satisfy the requested user story: As a user, I want oversized uploads to be rejected immediately with a clear reason, so I can fix the file and retry quickly.",
+    "FR-02: Existing successful behavior must remain intact for valid input paths",
+    "FR-03: Invalid or rejected paths must return explicit structured reasons that tests can assert",
+    "FR-04: Newly introduced rules must be deterministic and repeatable across multiple runs",
+    "AC-01: files larger than the limit are rejected",
+    "AC-02: error payload includes reason",
+    "AC-03: valid files continue to upload",
+    "AC-04: tests verify both accepted and rejected cases"
+  ],
+  "non_functional_requirements": [
+    "NFR-01: The feature must be testable using local deterministic pytest execution",
+    "NFR-02: Rule evaluation must be side-effect aware and safe to repeat in revision loops",
+    "NFR-03: Error responses must be stable enough for automated assertions",
+    "NFR-04: The solution should minimize unrelated code changes outside the targeted module set",
+    "NFR-05: The implementation must remain readable enough for semantic planner targeting"
+  ],
+  "edge_cases": [
+    "Boundary values around thresholds must behave consistently",
+    "Repeated invalid input attempts must preserve valid-path behavior",
+    "Partial state introduced during failed processing must not corrupt future attempts",
+    "Caller-visible response shape must remain explicit for both success and failure paths"
+  ],
+  "inputs_outputs": [
+    "Input: domain-specific request arguments defined by the seed repo's public function surface",
+    "Output (success): existing success payload remains intact unless backlog explicitly changes it",
+    "Output (rejection): explicit status or error reason is returned for rejected paths",
+    "Output (review/exception path): caller receives deterministic structured feedback"
+  ],
+  "dependencies": [
+    "Local Python source modules in the seed repo",
+    "pytest-based regression validation",
+    "Semantic planner outputs (target symbols, confidence, intent classification)",
+    "Patch engine with syntax validation and rollback"
+  ]
+}

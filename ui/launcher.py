@@ -65,11 +65,14 @@ class WorkflowLauncher:
 
     def run_workflow(self) -> None:
         print("\n[1/2] Running workflow engine...\n")
-        print(f"[DEBUG] venv_python: {self.venv_python}")  # noqa: F541
-        print(f"[DEBUG] project_root: {self.project_root}")  # noqa: F541
-        print(f"[DEBUG] PYTHONPATH: src")  # noqa: F541
+        print(f"[DEBUG] venv_python: {self.venv_python}")
+        print(f"[DEBUG] project_root: {self.project_root}")
+        print("[DEBUG] PYTHONPATH: src")
         if not self.venv_python.exists():
-            print(f"\nERROR: Python executable not found at {self.venv_python}\nDid you create the virtual environment? Try: python -m venv .venv && .venv\\Scripts\\activate")  # noqa: F541
+            print(
+                f"\nERROR: Python executable not found at {self.venv_python}\n"
+                "Did you create the virtual environment? Try: python -m venv .venv && .venv\\Scripts\\activate"
+            )
             sys.exit(1)
         env = {
             **__import__("os").environ,
@@ -89,7 +92,10 @@ class WorkflowLauncher:
                 env=env,
             )
         except FileNotFoundError as e:
-            print(f"\nERROR: {e}\n[LAUNCHER] Could not find file. Check that all paths are correct and the virtual environment is set up.")
+            print(
+                f"\nERROR: {e}\n[LAUNCHER] Could not find file. "
+                "Check that all paths are correct and the virtual environment is set up."
+            )
             sys.exit(1)
         if result.returncode != 0:
             print("\nERROR: Workflow engine failed.")
@@ -113,7 +119,7 @@ class WorkflowLauncher:
         preferred_port = self.args.port
         selected_port = self._select_dashboard_port(preferred_port)
         if selected_port != preferred_port:
-            print(f"\nPort {preferred_port} is in use. Falling back to port {selected_port}.\n")  # noqa: F541
+            print(f"\nPort {preferred_port} is in use. Falling back to port {selected_port}.\n")
         print(
             f"\n[{('2/2' if not self.args.ui_only else '1/1')}] Starting dashboard at "
             f"http://localhost:{selected_port}\n"
@@ -135,7 +141,7 @@ class WorkflowLauncher:
             print("\nDashboard stopped by user.")
             return
         if result.returncode != 0:
-            print(f"\nDashboard exited with code {result.returncode}.")  # noqa: F541
+            print(f"\nDashboard exited with code {result.returncode}.")
 
 
 parser = argparse.ArgumentParser(description="AI Software Factory launcher")
@@ -156,6 +162,7 @@ parser.add_argument(
 parser.add_argument("--repo-url", default=None, help="Optional Git repository URL to clone instead of a seed repo")
 parser.add_argument("--repo-ref", default=None, help="Optional Git branch, tag, or commit to checkout after clone")
 args = parser.parse_args()
+
 
 launcher = WorkflowLauncher(args)
 if args.escalation_demo:

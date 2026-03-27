@@ -15,3 +15,4 @@ def upload_document(filename, content):
     if len(content) > MAX_FILE_SIZE_BYTES:
         return UploadResult("REJECTED", error="file_too_large")
     return UploadResult("ACCEPTED")
+

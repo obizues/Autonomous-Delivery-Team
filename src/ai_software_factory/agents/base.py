@@ -10,8 +10,6 @@ from ai_software_factory.workflow.state import WorkflowState
 
 ArtifactType = TypeVar("ArtifactType", bound=BaseArtifact)
 
-
-
 @dataclass
 class AgentContext:
     workflow_state: WorkflowState

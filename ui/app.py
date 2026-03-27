@@ -52,6 +52,9 @@ from query import (
 # Alias so all inline HTML f-strings continue to work unchanged
 _tokens = TOKENS
 
+reached_stages = set()
+
+
 # ── Page config ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
@@ -88,6 +91,8 @@ st.markdown(
     }}
 
     .badge {{ display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; vertical-align: middle; }}
+        files = []
+
     .badge-approved  {{ background: #1f6b3e; color: #aff5b4; }}
     .badge-changes   {{ background: #7d4e17; color: #ffa657; }}
     .badge-reject    {{ background: #6e2020; color: #ff9a9a; }}
@@ -218,6 +223,8 @@ def render_workflow_graph_tab(readme: dict, artifacts: list[dict], events: list[
 
     # Determine all possible workflow stages
     from autonomous_delivery.ui.config import STAGE_ORDER
+    pr_title = ""
+
     reached_stages = {node["stage"] for node in nodes}
     for stage in STAGE_ORDER:
         # Find node for this stage (if any)
@@ -290,16 +297,20 @@ def render_workflow_graph_tab(readme: dict, artifacts: list[dict], events: list[
 
     # Draw arrows between reached nodes only
     reached_nodes = [n for n in nodes]
+    loop_shown = False
     for index, node in enumerate(reached_nodes):
         if index < len(reached_nodes) - 1:
             next_node = reached_nodes[index + 1]
             if next_node.get("loop_entry"):
-                loop_target = str(next_node.get("stage", "IMPLEMENTATION"))
-                if loop_target == "IMPLEMENTATION":
-                    arrow_text = "⬇ Revision loop back to IMPLEMENTATION"
-                else:
-                    arrow_text = f"⬇ Revision transition to {loop_target}"
-                st.markdown(f'<div class="wf-arrow loop">{arrow_text}</div>', unsafe_allow_html=True)
+                if not loop_shown:
+                    loop_target = str(next_node.get("stage", "IMPLEMENTATION"))
+                    if loop_target == "IMPLEMENTATION":
+                        # Render the loop message immediately after the IMPLEMENTATION card
+                        st.markdown(f'<div class="wf-arrow loop" style="color:#b91c1c;text-align:center;margin:12px 0;font-weight:600">⬇ Revision loop back to IMPLEMENTATION</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="wf-arrow loop" style="color:#b91c1c;text-align:center;margin:12px 0;font-weight:600">⬇ Revision transition to {loop_target}</div>', unsafe_allow_html=True)
+                    loop_shown = True
+                # Do not show any more arrows for this loop
             else:
                 st.markdown('<div class="wf-arrow">⬇</div>', unsafe_allow_html=True)
 
@@ -316,6 +327,8 @@ def _latest_human_intervention(artifacts: list[dict]) -> dict[str, Any] | None:
             str(a.get("uuid", "")),
         ),
     )
+
+
 
 
 def _render_human_intervention_card(artifacts: list[dict], title: str = "🧑‍💼 Escalation Decision") -> None:
@@ -434,24 +447,6 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
                 st.success(f"Merge Conflict Gate: APPROVED by {reviewer}")
             elif decision == "REQUEST_CHANGES":
                 st.error(f"Merge Conflict Gate: REQUEST_CHANGES by {reviewer}")
-            else:
-                st.info(f"Merge Conflict Gate decision: {decision or 'UNKNOWN'}")
-
-    st.divider()
-    left, right = st.columns(2)
-    with left:
-        st.markdown("#### Generated Source Files")
-        if source_files:
-            for path in source_files:
-                st.markdown(f"- {path}")
-        else:
-            st.info("No source files recorded yet.")
-
-    with right:
-        st.markdown("#### Generated Test Files")
-        if test_files:
-            for path in test_files:
-                st.markdown(f"- {path}")
         else:
             st.info("No test files recorded yet.")
 
@@ -516,7 +511,7 @@ def render_execution_tab(readme: dict, artifacts: list[dict], events: list[dict]
                         st.markdown("- No confidence scores recorded")
 
 
-def render_revision_insights_tab(readme: dict, artifacts: list[dict], events: list[dict], snapshots: dict) -> None:
+def render_revision_insights_tab(readme: dict, artifacts: list[dict], events: list[dict], snapshots: dict, workflow_id: str) -> None:
     st.markdown("### 🔄 Revision Insights")
     st.markdown(
         "Advanced diagnostics: where revision loops happened, why they were triggered, and what changed in the next revision."
@@ -585,6 +580,8 @@ def render_revision_insights_tab(readme: dict, artifacts: list[dict], events: li
         ):
             col_a, col_b, col_c = st.columns(3)
             col_a.markdown(f"**Revision {failed_revision} Failed**")
+            # ...existing code...
+            f"Resume blocked: workflow_id '{workflow_id}' was not found in available SQLite state stores. Run escalation from dashboard first, or select a workflow generated by this workspace."
             col_b.markdown(f"**Gate:** `{gate}`")
             col_c.markdown(f"**Decision:** `{cycle['decision']}`")
 
@@ -681,48 +678,7 @@ def render_summary_tab(
 ) -> None:
     import streamlit as st
     # ── Live Event Feed with Plain-Language Explanations ──
-    st.markdown("### 📰 Live Event Feed (Automation Steps)")
-    def explain_event(evt):
-        etype = evt.get("event_type", "")
-        payload = evt.get("payload", {})
-        who = payload.get("actor") or evt.get("created_by") or "Agent"
-        stage = evt.get("stage", "")
-        ts = evt.get("timestamp", "")
-        ts_short = ts[:19].replace("T", " ") if ts else ""
-        # Simple explanations for key event types
-        if etype == "WORKFLOW_STARTED":
-            return f"<b>Workflow started</b> by <b>{who}</b> at <span style='color:#888'>{ts_short}</span>."
-        if etype == "ARTIFACT_CREATED":
-            art_type = payload.get("artifact_type", "artifact")
-            return f"<b>{who}</b> created <b>{art_type}</b> in <b>{stage}</b> at <span style='color:#888'>{ts_short}</span>."
-        if etype == "DECISION_MADE":
-            decision = payload.get("decision", "—")
-            return f"<b>{who}</b> made decision <b>{decision}</b> at <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
-        if etype == "FILES_MODIFIED":
-            files = payload.get("files") or payload.get("engineer_lanes") or "files"
-            return f"<b>{who}</b> modified files in <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
-        if etype == "PATCH_APPLIED":
-            file_path = payload.get("file_path", "file")
-            return f"Patch applied to <b>{file_path}</b> by <b>{who}</b> <span style='color:#888'>{ts_short}</span>."
-        if etype == "PATCH_ROLLED_BACK":
-            file_path = payload.get("file_path", "file")
-            return f"Patch rolled back on <b>{file_path}</b> by <b>{who}</b> <span style='color:#888'>{ts_short}</span>."
-        if etype == "TEST_EXECUTION_STARTED":
-            return f"Test execution started in <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
-        if etype == "TEST_EXECUTION_COMPLETED":
-            return f"Test execution completed in <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
-        if etype == "WORKFLOW_COMPLETED":
-            return f"<b>Workflow completed</b> <span style='color:#888'>{ts_short}</span>."
-        if etype == "REVISION_STARTED":
-            rev = payload.get("new_revision", "?")
-            return f"Revision <b>{rev}</b> started at <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
-        # Fallback
-        return f"<b>{etype}</b> in <b>{stage}</b> <span style='color:#888'>{ts_short}</span>."
-
-    # Show most recent 20 events, newest first
-    for evt in reversed(events[-20:] if len(events) > 20 else events):
-        st.markdown(f"<div style='margin-bottom:6px;padding:7px 10px 7px 12px;border-left:4px solid #2563eb;background:#f8fafc;border-radius:6px'>{explain_event(evt)}</div>", unsafe_allow_html=True)
-    st.divider()
+    # Live Event Feed (Automation Steps) section removed for cleaner UI
     import streamlit as st
     active_context = detect_active_context(artifacts, events)
     # Single authoritative rollup — reused throughout this function
@@ -753,46 +709,7 @@ def render_summary_tab(
     )
 
     # ── Step-by-step visual playback (Replay/Demo mode) ──
-    st.markdown("### ▶️ Step-by-Step Workflow Replay")
-    from analytics import build_stage_timeline
-    timeline = build_stage_timeline(artifacts, events, snapshots)
-    if 'replay_step' not in st.session_state:
-        st.session_state['replay_step'] = 0
-    max_step = len(timeline) - 1
-    col1, col2, col3 = st.columns([1,2,1])
-    with col1:
-        if st.button('⏮️', key='replay_first'):
-            st.session_state['replay_step'] = 0
-        if st.button('◀️', key='replay_prev'):
-            st.session_state['replay_step'] = max(0, st.session_state['replay_step'] - 1)
-    with col3:
-        if st.button('▶️', key='replay_next'):
-            st.session_state['replay_step'] = min(max_step, st.session_state['replay_step'] + 1)
-        if st.button('⏭️', key='replay_last'):
-            st.session_state['replay_step'] = max_step
-    with col2:
-        st.markdown(f"<div style='text-align:center;font-size:1.1rem'>Step <b>{st.session_state['replay_step']+1}</b> of <b>{max_step+1}</b></div>", unsafe_allow_html=True)
-    if timeline:
-        step = timeline[st.session_state['replay_step']]
-        st.markdown(f"<div style='background:#f0f9ff;border-left:4px solid #2563eb;padding:12px 18px;border-radius:8px;margin-bottom:10px'>"
-                    f"<b>{step['icon']} {step['label']}</b> <span style='color:#888;font-size:0.95em'>({step['role']})</span><br>"
-                    f"<span style='color:#666;font-size:0.95em'>Artifacts: {', '.join(step['artifact_types']) if step['artifact_types'] else '—'}" 
-                    f" | Decision: <b>{step['decision'] or '—'}</b></span>"
-                    f"</div>", unsafe_allow_html=True)
-        # Show event log for this step
-        stage_events = [e for e in events if e.get('stage') == step['stage'] and (not step['revision'] or e.get('payload', {}).get('revision') == step['revision'])]
-        if stage_events:
-            with st.expander("Show events for this step", expanded=False):
-                for evt in stage_events:
-                    etype = evt.get("event_type", "")
-                    ts = evt.get("timestamp", "")
-                    ts_short = ts[:19].replace("T", " ") if ts else ""
-                    payload = evt.get("payload", {})
-                    summary = ', '.join(f"{k}: {v}" for k, v in payload.items() if k not in ("artifacts", "events"))
-                    st.markdown(f"- <b>{etype}</b> <span style='color:#888'>{ts_short}</span> <span style='color:#666'>{summary}</span>", unsafe_allow_html=True)
-        else:
-            st.caption("No events for this step.")
-    st.divider()
+    # Step-by-Step Workflow Replay section removed for cleaner UI
     not_reached_badge = ""
     if status not in ("COMPLETED", "ESCALATED"):
         not_reached_badge = "<span class='badge' style='background:#eee;color:#888;border:1px solid #d1d5db;margin-left:10px' title='Workflow did not reach all stages in this run.'>NOT REACHED</span>"
@@ -1410,7 +1327,8 @@ def render_main(
         with process_graph:
             render_workflow_graph_tab(readme, artifacts, events, snapshots)
         with process_revision:
-            render_revision_insights_tab(readme, artifacts, events, snapshots)
+            workflow_id = readme.get("workflow_id", "—")
+            render_revision_insights_tab(readme, artifacts, events, snapshots, workflow_id)
 
     with tab_evidence:
         evidence_execution, evidence_artifacts, evidence_events = st.tabs([

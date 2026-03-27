@@ -1,19 +1,15 @@
 # flake8 rule: prohibit 'from ui.config' imports in ui/*.py
 # Place in .flake8 or setup.cfg for enforcement
-
 [flake8]
 exclude = .venv,build,dist
 max-line-length = 120
 per-file-ignores =
     __init__.py: F401
-
 # Custom plugin: prohibit 'from ui.config' in ui/*.py
 # Use flake8-builtins or flake8-bugbear for custom checks
-
 # Example: flake8-bugbear (install with pip install flake8-bugbear)
 # Add this to enforce:
 # B001: Prohibit 'from ui.config' in ui/*.py
-
 # For full enforcement, add a pre-commit hook:
 #   - repo: https://github.com/pycqa/flake8
 #     hooks:

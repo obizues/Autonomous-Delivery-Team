@@ -1,5 +1,5 @@
 import difflib
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 class ArtifactDrilldownService:
     @staticmethod

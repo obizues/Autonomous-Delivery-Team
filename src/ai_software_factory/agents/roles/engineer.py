@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import logging
@@ -91,13 +92,12 @@ class CodeReviewAnalyzer:
         if files_changed == 0:
             issues.append("No files were changed in implementation")
             return 0.30
-        elif files_changed == 1:
+        if files_changed == 1:
             return 0.95  # Single file changes are excellent
-        elif files_changed <= 3:
+        if files_changed <= 3:
             return 0.85  # Multiple files, still reasonable
-        else:
-            issues.append(f"High complexity: {files_changed} files modified (consider breaking into smaller PRs)")
-            return 0.60
+        issues.append(f"High complexity: {files_changed} files modified (consider breaking into smaller PRs)")
+        return 0.60
         
     def _analyze_error_handling(self, issues: list, suggestions: list) -> float:
         """Analyze error handling patterns in code."""

@@ -58,6 +58,7 @@ class WorkflowEngine:
         profiles = self.repo_ingestion_service.profile_repositories()
         self.multi_repo_coordinator.repo_profiles = profiles
         return profiles
+
     def select_repo_for_task(self, task_description):
         # Use agentic repo selection
         return self.multi_repo_coordinator.select_best_repo(task_description, required_capabilities=[])

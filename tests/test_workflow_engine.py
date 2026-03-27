@@ -47,7 +47,6 @@ def test_workflow_engine_stage_transitions():
         "test_engineer": DummyAgent()
     }
     agents = dict(agents)  # type: ignore
-    agents = dict(agents)  # Cast to dict[str, Agent]
     engine = WorkflowEngine(
         state_store,
         artifact_store,
@@ -95,7 +94,6 @@ def test_workflow_engine_revision_loops_and_escalation():
         "test_engineer": DummyAgent()
     }
     agents = dict(agents)  # type: ignore
-    agents = dict(agents)
     engine = WorkflowEngine(
         state_store,
         artifact_store,
@@ -142,7 +140,6 @@ def test_workflow_engine_artifact_creation():
         "test_engineer": DummyAgent()
     }
     agents = dict(agents)  # type: ignore
-    agents = dict(agents)
     engine = WorkflowEngine(
         state_store,
         artifact_store,
@@ -178,7 +175,6 @@ def test_workflow_engine_resume_from_escalation():
         "test_engineer": DummyAgent()
     }
     agents = dict(agents)  # type: ignore
-    agents = dict(agents)
     engine = WorkflowEngine(
         state_store,
         artifact_store,

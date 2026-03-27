@@ -1,6 +1,7 @@
 from typing import Optional
 from autonomous_delivery.ui.loader import load_artifacts
 
+
 def get_file_content_at_revision(file_path: str, revision: Optional[int]) -> str:
     """
     Returns the file content for a given file_path at a specific revision.

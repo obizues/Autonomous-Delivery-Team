@@ -45,7 +45,6 @@ def test_escalation_workflow():
         "test_engineer": DummyAgent()
     }
     agents = dict(agents)  # type: ignore
-    agents = dict(agents)
     engine = WorkflowEngine(
         state_store,
         artifact_store,

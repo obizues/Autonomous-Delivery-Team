@@ -133,7 +133,10 @@ def engineer_lane_insights_by_revision(events: list[dict]) -> dict[int, list[dic
 
         grouped[revision] = sorted(
             lane_rows.values(),
-            key=lambda row: int(str(row["lane_id"]).split("_")[-1]) if str(row["lane_id"]).split("_")[-1].isdigit() else 999,  # noqa: E501
+            key=lambda row: (
+                int(str(row["lane_id"]).split("_")[-1])
+                if str(row["lane_id"]).split("_")[-1].isdigit() else 999
+            ),
         )
 
     return grouped
@@ -178,7 +181,10 @@ def cross_review_assignments_by_revision(artifacts: list[dict]) -> dict[int, lis
     for revision, rows in grouped.items():
         result[revision] = sorted(
             rows,
-            key=lambda row: int(str(row["lane_id"]).split("_")[-1]) if str(row["lane_id"]).split("_")[-1].isdigit() else 999,  # noqa: E501
+            key=lambda row: (
+                int(str(row["lane_id"]).split("_")[-1])
+                if str(row["lane_id"]).split("_")[-1].isdigit() else 999
+            ),
         )
     return result
 
@@ -218,7 +224,7 @@ def engineer_revision_rollup(
 
 
 def quality_trends_by_revision(artifacts: list[dict]) -> list[dict[str, Any]]:
-    by_stage = artifacts_by_stage(artifacts)
+    artifacts_by_stage(artifacts)  # noqa: F841
     revisions = sorted({int(a.get("version", 0) or 0) for a in artifacts if int(a.get("version", 0) or 0) > 0})
     rows: list[dict[str, Any]] = []
 
